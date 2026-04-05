@@ -87,11 +87,7 @@ impl Scanner for EventSchemaDrift {
             .count();
         let total = all_topics.len();
 
-        let score = if total > 0 {
-            ((aligned_count as f64 / total as f64) * 100.0) as u8
-        } else {
-            100
-        };
+        let score = compute_score(&findings);
 
         let summary = format!(
             "{} topics total, {} aligned, {} unhandled, {} dead listeners, {} naming drifts",
@@ -109,6 +105,27 @@ impl Scanner for EventSchemaDrift {
             summary,
         }
     }
+}
+
+/// Compute score using a graduated penalty model.
+///
+/// Each finding deducts from 100 based on severity:
+/// - Critical: -15
+/// - Warning: -8
+/// - Info: -3
+///
+/// The score floors at 0.
+fn compute_score(findings: &[Finding]) -> u8 {
+    let penalty: i32 = findings
+        .iter()
+        .map(|f| match f.severity {
+            Severity::Critical => 15,
+            Severity::Warning => 8,
+            Severity::Info => 3,
+        })
+        .sum();
+    let raw = 100i32.saturating_sub(penalty);
+    raw.max(0) as u8
 }
 
 /// Collect all unique topic names from a DashMap keyed by topic.
@@ -213,6 +230,43 @@ mod tests {
         let map: dashmap::DashMap<String, Vec<EventProducer>> = dashmap::DashMap::new();
         let topics = collect_topics(&map);
         assert!(topics.is_empty());
+    }
+
+    #[test]
+    fn test_single_finding_does_not_zero_score() {
+        // One Warning finding should deduct 8 points, yielding 92
+        let findings = vec![Finding::new(
+            SCANNER_ID,
+            Severity::Warning,
+            "Unhandled event: topic 'asset.created' is produced but has no consumer",
+        )];
+        let score = compute_score(&findings);
+        assert!(
+            score >= 60,
+            "Single Warning finding should not zero the score, got {}",
+            score
+        );
+        assert_eq!(score, 92);
+    }
+
+    #[test]
+    fn test_compute_score_mixed_severities() {
+        let findings = vec![
+            Finding::new(SCANNER_ID, Severity::Critical, "dead listener"),
+            Finding::new(SCANNER_ID, Severity::Warning, "unhandled event"),
+            Finding::new(SCANNER_ID, Severity::Info, "naming drift"),
+        ];
+        // 100 - 15 - 8 - 3 = 74
+        assert_eq!(compute_score(&findings), 74);
+    }
+
+    #[test]
+    fn test_compute_score_floors_at_zero() {
+        let findings: Vec<Finding> = (0..10)
+            .map(|_| Finding::new(SCANNER_ID, Severity::Critical, "dead listener"))
+            .collect();
+        // 100 - 150 = -50, clamped to 0
+        assert_eq!(compute_score(&findings), 0);
     }
 
     #[test]

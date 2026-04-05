@@ -1,0 +1,40 @@
+# Sentinella Audit Integration
+# Copy this file to your project and include it in your main Makefile,
+# or use these targets directly.
+#
+# Prerequisites:
+#   - Sentinella binary in PATH (cargo install sentinella)
+#   - .sentinella.yaml in project root
+
+SENTINELLA ?= sentinella
+SENTINELLA_CONFIG ?= .sentinella.yaml
+SENTINELLA_MIN_SCORE ?= 60
+
+.PHONY: audit-code audit-json audit-full audit-check
+
+## Run Sentinella code audit (terminal output)
+audit-code:
+	$(SENTINELLA) --config $(SENTINELLA_CONFIG)
+
+## Run Sentinella audit with JSON output
+audit-json:
+	$(SENTINELLA) --config $(SENTINELLA_CONFIG) --format json
+
+## Full audit pipeline (JSON export + terminal summary)
+audit-full:
+	@echo "=== Sentinella Code Audit ==="
+	$(SENTINELLA) --config $(SENTINELLA_CONFIG) --format json > sentinella-report.json
+	@echo "Report saved to sentinella-report.json"
+	$(SENTINELLA) --config $(SENTINELLA_CONFIG)
+
+## CI gate: fail if score below threshold
+audit-check:
+	@echo "=== Sentinella Quality Gate (min: $(SENTINELLA_MIN_SCORE)) ==="
+	@score=$$($(SENTINELLA) --config $(SENTINELLA_CONFIG) --format json | jq -r '.overall_score // 0'); \
+	echo "Score: $$score / 100 (threshold: $(SENTINELLA_MIN_SCORE))"; \
+	if [ "$$score" -lt "$(SENTINELLA_MIN_SCORE)" ]; then \
+		echo "FAIL: Score $$score is below minimum $(SENTINELLA_MIN_SCORE)"; \
+		exit 1; \
+	else \
+		echo "PASS: Score $$score meets threshold"; \
+	fi

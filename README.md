@@ -448,20 +448,34 @@ sentinella  system completeness audit
 
 ## CI Integration
 
-```yaml
-# .github/workflows/sentinella.yml
-name: Sentinella Audit
-on: [push, pull_request]
+### GitHub Actions
 
-jobs:
-  audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Sentinella
-        run: cargo install --path .
-      - name: Run audit
-        run: sentinella check --min_coverage 80
+Add a Sentinella audit step to any workflow:
+
+```yaml
+- name: Sentinella Audit
+  run: |
+    cargo install sentinella
+    sentinella --config .sentinella.yaml
+```
+
+A full CI workflow is provided at `.github/workflows/ci.yml` — it runs formatting checks, Clippy lints, tests, release builds, and a security audit.
+
+### Makefile Integration
+
+Copy `templates/Makefile.sentinella` to your project and use the following targets:
+
+```bash
+make audit-code    # Terminal output
+make audit-json    # JSON export
+make audit-full    # Full pipeline (JSON export + terminal summary)
+make audit-check   # CI quality gate (fails if score < 60)
+```
+
+Override the minimum score threshold:
+
+```bash
+make audit-check SENTINELLA_MIN_SCORE=80
 ```
 
 ## Tech Stack
@@ -750,20 +764,34 @@ output:
 
 ## CI 集成
 
-```yaml
-# .github/workflows/sentinella.yml
-name: Sentinella 审计
-on: [push, pull_request]
+### GitHub Actions
 
-jobs:
-  audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: 安装 Sentinella
-        run: cargo install --path .
-      - name: 运行审计
-        run: sentinella check --min_coverage 80
+在任意工作流中添加 Sentinella 审计步骤：
+
+```yaml
+- name: Sentinella Audit
+  run: |
+    cargo install sentinella
+    sentinella --config .sentinella.yaml
+```
+
+完整的 CI 工作流位于 `.github/workflows/ci.yml` -- 包含格式检查、Clippy 静态分析、测试、Release 构建和安全审计。
+
+### Makefile 集成
+
+将 `templates/Makefile.sentinella` 复制到你的项目中，使用以下目标：
+
+```bash
+make audit-code    # 终端输出
+make audit-json    # JSON 导出
+make audit-full    # 完整流程（JSON 导出 + 终端摘要）
+make audit-check   # CI 质量门禁（分数低于 60 则失败）
+```
+
+覆盖最低分数阈值：
+
+```bash
+make audit-check SENTINELLA_MIN_SCORE=80
 ```
 
 ## 技术栈

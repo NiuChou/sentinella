@@ -29,6 +29,9 @@ pub enum Framework {
     FastAPI,
     Gin,
     Echo,
+    Actix,
+    Axum,
+    Rocket,
     Unknown,
 }
 
@@ -39,6 +42,7 @@ pub enum Language {
     Go,
     Sql,
     Dockerfile,
+    Rust,
     Yaml,
     Env,
     Unknown,

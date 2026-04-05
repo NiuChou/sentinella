@@ -12,6 +12,7 @@ pub mod go_lang;
 pub mod sql;
 pub mod dockerfile;
 pub mod yaml_config;
+pub mod rust_lang;
 pub mod env_file;
 pub mod test_file;
 
@@ -119,6 +120,7 @@ pub fn all_parsers() -> Vec<Box<dyn LanguageParser>> {
         Box::new(sql::SqlParser),
         Box::new(dockerfile::DockerfileParser),
         Box::new(yaml_config::YamlConfigParser),
+        Box::new(rust_lang::RustParser),
         Box::new(env_file::EnvFileParser),
     ]
 }

@@ -211,20 +211,38 @@ impl IndexStore {
 
 /// Normalize an API path for consistent matching.
 ///
+/// - Strip query strings (`?key=val`)
 /// - Replace `:param_name` with `:param`
-/// - Replace `{param_name}` with `:param`
+/// - Replace `{param_name}`, `${param_name}`, `[param_name]` with `:param`
 /// - Remove trailing slashes
 /// - Lowercase
 pub fn normalize_api_path(path: &str) -> String {
-    let lowered = path.to_lowercase();
+    // Strip query string before normalizing
+    let path_only = path.split('?').next().unwrap_or(path);
+    let lowered = path_only.to_lowercase();
     let trimmed = lowered.trim_end_matches('/');
 
-    let mut result = String::with_capacity(trimmed.len());
-    let mut chars = trimmed.chars().peekable();
+    normalize_param_segments(trimmed)
+}
+
+/// Core parameter normalization shared by all path-matching functions.
+/// Replaces `:name`, `{name}`, `${name}`, and `[name]` with `:param`.
+fn normalize_param_segments(input: &str) -> String {
+    let mut result = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
 
     while let Some(ch) = chars.next() {
-        if ch == ':' {
-            // Consume the parameter name, replace with :param
+        if ch == '$' && chars.peek() == Some(&'{') {
+            // Consume `${param_name}`, replace with :param
+            chars.next(); // consume '{'
+            result.push_str(":param");
+            while let Some(inner) = chars.next() {
+                if inner == '}' {
+                    break;
+                }
+            }
+        } else if ch == ':' {
+            // Consume `:param_name`, replace with :param
             result.push_str(":param");
             while let Some(&next) = chars.peek() {
                 if next == '/' {
@@ -233,10 +251,18 @@ pub fn normalize_api_path(path: &str) -> String {
                 chars.next();
             }
         } else if ch == '{' {
-            // Consume until closing brace, replace with :param
+            // Consume `{param_name}`, replace with :param
             result.push_str(":param");
             while let Some(inner) = chars.next() {
                 if inner == '}' {
+                    break;
+                }
+            }
+        } else if ch == '[' {
+            // Consume `[param_name]`, replace with :param
+            result.push_str(":param");
+            while let Some(inner) = chars.next() {
+                if inner == ']' {
                     break;
                 }
             }
@@ -250,6 +276,37 @@ pub fn normalize_api_path(path: &str) -> String {
     } else {
         result
     }
+}
+
+/// Generate plural/singular variants of a normalized path.
+///
+/// For each non-parameter segment, produces a variant where that segment
+/// has its trailing 's' toggled (added or removed). Returns the original
+/// path plus all single-segment variants.
+pub fn plural_variants(normalized: &str) -> Vec<String> {
+    let segments: Vec<&str> = normalized.split('/').collect();
+    let mut variants = vec![normalized.to_string()];
+
+    for (i, seg) in segments.iter().enumerate() {
+        if seg.is_empty() || *seg == ":param" {
+            continue;
+        }
+
+        let toggled = if seg.ends_with('s') {
+            seg.trim_end_matches('s').to_string()
+        } else {
+            format!("{}s", seg)
+        };
+
+        let mut new_segments = segments.clone();
+        new_segments[i] = &toggled;
+        let variant = new_segments.join("/");
+        if variant != normalized {
+            variants.push(variant);
+        }
+    }
+
+    variants
 }
 
 #[cfg(test)]
@@ -293,5 +350,56 @@ mod tests {
     #[test]
     fn test_normalize_empty_path() {
         assert_eq!(normalize_api_path("/"), "/");
+    }
+
+    #[test]
+    fn test_normalize_dollar_brace_params() {
+        assert_eq!(
+            normalize_api_path("/api/users/${userId}/posts/${postId}"),
+            "/api/users/:param/posts/:param"
+        );
+    }
+
+    #[test]
+    fn test_normalize_bracket_params() {
+        assert_eq!(
+            normalize_api_path("/api/users/[userId]/posts/[postId]"),
+            "/api/users/:param/posts/:param"
+        );
+    }
+
+    #[test]
+    fn test_normalize_strips_query_string() {
+        assert_eq!(
+            normalize_api_path("/api/users/:id?include=posts&limit=10"),
+            "/api/users/:param"
+        );
+    }
+
+    #[test]
+    fn test_normalize_mixed_param_formats() {
+        // All param formats produce the same normalized output
+        let colon = normalize_api_path("/api/users/:id");
+        let brace = normalize_api_path("/api/users/{id}");
+        let dollar = normalize_api_path("/api/users/${id}");
+        let bracket = normalize_api_path("/api/users/[id]");
+        assert_eq!(colon, brace);
+        assert_eq!(brace, dollar);
+        assert_eq!(dollar, bracket);
+    }
+
+    #[test]
+    fn test_plural_variants_basic() {
+        let variants = plural_variants("/api/session/:param/answer");
+        assert!(variants.contains(&"/api/session/:param/answer".to_string()));
+        assert!(variants.contains(&"/api/sessions/:param/answer".to_string()));
+        assert!(variants.contains(&"/api/session/:param/answers".to_string()));
+    }
+
+    #[test]
+    fn test_plural_variants_already_plural() {
+        let variants = plural_variants("/api/users/:param");
+        assert!(variants.contains(&"/api/users/:param".to_string()));
+        assert!(variants.contains(&"/api/user/:param".to_string()));
     }
 }

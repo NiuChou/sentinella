@@ -2,7 +2,7 @@ use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 
 use crate::config::FlowConfig;
-use crate::indexer::store::normalize_api_path;
+use crate::indexer::store::{normalize_api_path, plural_variants};
 use crate::indexer::types::HttpMethod;
 
 use super::types::{Finding, ScanContext, ScanResult, Scanner, Severity};
@@ -193,26 +193,81 @@ fn parse_api_spec(api: &str) -> Option<ParsedApiSpec> {
 
 fn check_endpoint_exists(ctx: &ScanContext, spec: &ParsedApiSpec) -> bool {
     let normalized = normalize_api_path(&spec.path);
+
+    // 1. Exact match (current behavior)
     let endpoints = ctx.index.endpoints_for_path(&normalized);
-    endpoints.iter().any(|ep| ep.method == spec.method)
+    if endpoints.iter().any(|ep| ep.method == spec.method) {
+        return true;
+    }
+
+    // 2. Plural/singular variant match
+    for variant in plural_variants(&normalized) {
+        let eps = ctx.index.endpoints_for_path(&variant);
+        if eps.iter().any(|ep| ep.method == spec.method) {
+            return true;
+        }
+    }
+
+    // 3. Prefix match — flow path is a prefix of a backend route
+    let all_endpoints = ctx.index.all_api_endpoints();
+    all_endpoints.iter().any(|ep| {
+        ep.method == spec.method && {
+            let ep_normalized = normalize_api_path(&ep.path);
+            ep_normalized.starts_with(&normalized)
+        }
+    })
 }
 
 fn check_call_exists(ctx: &ScanContext, spec: &ParsedApiSpec) -> bool {
     let normalized = normalize_api_path(&spec.path);
+
+    // 1. Exact match (current behavior)
     let calls = ctx.index.calls_for_url(&normalized);
-    calls.iter().any(|c| c.method == spec.method)
+    if calls.iter().any(|c| c.method == spec.method) {
+        return true;
+    }
+
+    // 2. Plural/singular variant match
+    for variant in plural_variants(&normalized) {
+        let cs = ctx.index.calls_for_url(&variant);
+        if cs.iter().any(|c| c.method == spec.method) {
+            return true;
+        }
+    }
+
+    // 3. Prefix match — flow path is a prefix of a frontend call URL
+    let all_calls = ctx.index.all_api_calls();
+    all_calls.iter().any(|c| {
+        c.method == spec.method && {
+            let c_normalized = normalize_api_path(&c.url);
+            c_normalized.starts_with(&normalized)
+        }
+    })
 }
 
 /// Check if any file making the API call is reachable from a page file
 /// via the import graph. Uses BFS from each page file through imports.
 fn check_import_connectivity(ctx: &ScanContext, spec: &ParsedApiSpec) -> bool {
     let normalized = normalize_api_path(&spec.path);
-    let calls = ctx.index.calls_for_url(&normalized);
-    let call_files: HashSet<PathBuf> = calls
-        .iter()
-        .filter(|c| c.method == spec.method)
-        .map(|c| c.file.clone())
-        .collect();
+
+    // Collect call files from exact match + plural variants
+    let mut call_files: HashSet<PathBuf> = HashSet::new();
+    for variant in plural_variants(&normalized) {
+        let calls = ctx.index.calls_for_url(&variant);
+        for c in calls.iter().filter(|c| c.method == spec.method) {
+            call_files.insert(c.file.clone());
+        }
+    }
+
+    // Also check prefix matches
+    for c in ctx.index.all_api_calls() {
+        if c.method == spec.method {
+            let c_norm = normalize_api_path(&c.url);
+            if c_norm.starts_with(&normalized) {
+                call_files.insert(c.file.clone());
+            }
+        }
+    }
 
     if call_files.is_empty() {
         return false;
@@ -348,5 +403,37 @@ mod tests {
     #[test]
     fn test_parse_api_spec_empty() {
         assert!(parse_api_spec("").is_none());
+    }
+
+    #[test]
+    fn test_normalize_api_path_params() {
+        // All parameter formats produce the same normalized output
+        let colon = normalize_api_path("/api/users/:id");
+        let dollar_brace = normalize_api_path("/api/users/${id}");
+        let brace = normalize_api_path("/api/users/{id}");
+        assert_eq!(colon, "/api/users/:param");
+        assert_eq!(dollar_brace, "/api/users/:param");
+        assert_eq!(brace, "/api/users/:param");
+    }
+
+    #[test]
+    fn test_flow_step_fuzzy_match() {
+        // /api/sessions/:id should match /api/session/:sessionId
+        // after normalization + plural variants
+        let flow_path = normalize_api_path("/api/sessions/:id");
+        let backend_path = normalize_api_path("/api/session/:sessionId");
+
+        // Direct normalized comparison may differ due to plural
+        // but plural_variants of one should contain the other
+        let flow_variants = plural_variants(&flow_path);
+        let backend_variants = plural_variants(&backend_path);
+
+        let matched = flow_variants.iter().any(|fv| backend_variants.contains(fv));
+        assert!(
+            matched,
+            "Expected /api/sessions/:id to fuzzy-match /api/session/:sessionId. \
+             Flow variants: {:?}, Backend variants: {:?}",
+            flow_variants, backend_variants
+        );
     }
 }

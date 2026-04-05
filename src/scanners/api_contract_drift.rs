@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::indexer::store::normalize_api_path;
+use crate::indexer::store::{normalize_api_path, plural_variants};
 use crate::indexer::types::{ApiCall, ApiEndpoint, HttpMethod};
 
 use super::types::{Finding, ScanContext, ScanResult, Scanner, Severity};
@@ -154,10 +154,15 @@ fn build_endpoint_index(endpoints: &[ApiEndpoint]) -> Vec<EndpointEntry> {
 }
 
 fn build_call_index(calls: &[ApiCall]) -> HashSet<(String, HttpMethod)> {
-    calls
-        .iter()
-        .map(|c| (normalize_api_path(&c.url), c.method))
-        .collect()
+    let mut index = HashSet::new();
+    for c in calls {
+        let normalized = normalize_api_path(&c.url);
+        // Insert the normalized form and all plural/singular variants
+        for variant in plural_variants(&normalized) {
+            index.insert((variant, c.method));
+        }
+    }
+    index
 }
 
 fn find_matching_endpoint(
@@ -165,22 +170,42 @@ fn find_matching_endpoint(
     method: HttpMethod,
     endpoints: &[EndpointEntry],
 ) -> EndpointMatch {
+    // 1. Exact normalized path match (current behavior)
     let path_matches: Vec<&EndpointEntry> = endpoints
         .iter()
         .filter(|ep| ep.normalized_path == normalized_url)
         .collect();
 
-    if path_matches.is_empty() {
-        return EndpointMatch::NoMatch;
+    if !path_matches.is_empty() {
+        let has_exact = path_matches.iter().any(|ep| ep.method == method);
+        if has_exact {
+            return EndpointMatch::Exact;
+        }
+        let available_methods: Vec<HttpMethod> =
+            path_matches.iter().map(|ep| ep.method).collect();
+        return EndpointMatch::PathMatchMethodMismatch(available_methods);
     }
 
-    let has_exact = path_matches.iter().any(|ep| ep.method == method);
-    if has_exact {
-        return EndpointMatch::Exact;
+    // 2. Plural/singular variant fallback
+    let url_variants = plural_variants(normalized_url);
+    for variant in &url_variants {
+        let variant_matches: Vec<&EndpointEntry> = endpoints
+            .iter()
+            .filter(|ep| ep.normalized_path == *variant)
+            .collect();
+
+        if !variant_matches.is_empty() {
+            let has_method = variant_matches.iter().any(|ep| ep.method == method);
+            if has_method {
+                return EndpointMatch::Exact;
+            }
+            let available_methods: Vec<HttpMethod> =
+                variant_matches.iter().map(|ep| ep.method).collect();
+            return EndpointMatch::PathMatchMethodMismatch(available_methods);
+        }
     }
 
-    let available_methods: Vec<HttpMethod> = path_matches.iter().map(|ep| ep.method).collect();
-    EndpointMatch::PathMatchMethodMismatch(available_methods)
+    EndpointMatch::NoMatch
 }
 
 #[cfg(test)]
@@ -215,5 +240,65 @@ mod tests {
         }];
         let result = find_matching_endpoint("/api/orders", HttpMethod::Get, &endpoints);
         assert!(matches!(result, EndpointMatch::NoMatch));
+    }
+
+    #[test]
+    fn test_normalize_route_params() {
+        // All parameter formats produce the same normalized output
+        let colon = normalize_api_path("/api/users/:id");
+        let dollar = normalize_api_path("/api/users/${userId}");
+        let brace = normalize_api_path("/api/users/{id}");
+        let bracket = normalize_api_path("/api/users/[id]");
+        assert_eq!(colon, "/api/users/:param");
+        assert_eq!(dollar, "/api/users/:param");
+        assert_eq!(brace, "/api/users/:param");
+        assert_eq!(bracket, "/api/users/:param");
+    }
+
+    #[test]
+    fn test_find_match_with_different_param_formats() {
+        // Backend uses Express-style :id
+        let endpoints = vec![EndpointEntry {
+            normalized_path: normalize_api_path("/api/users/:id"),
+            method: HttpMethod::Get,
+        }];
+        // Frontend uses ${userId} — after normalization should match
+        let frontend_url = normalize_api_path("/api/users/${userId}");
+        let result = find_matching_endpoint(&frontend_url, HttpMethod::Get, &endpoints);
+        assert!(
+            matches!(result, EndpointMatch::Exact),
+            "Expected /api/users/${{userId}} to match /api/users/:id"
+        );
+    }
+
+    #[test]
+    fn test_find_match_with_query_string() {
+        let endpoints = vec![EndpointEntry {
+            normalized_path: normalize_api_path("/api/users/:id"),
+            method: HttpMethod::Get,
+        }];
+        // Frontend call includes query string
+        let frontend_url = normalize_api_path("/api/users/${userId}?include=posts");
+        let result = find_matching_endpoint(&frontend_url, HttpMethod::Get, &endpoints);
+        assert!(
+            matches!(result, EndpointMatch::Exact),
+            "Expected query string to be stripped before matching"
+        );
+    }
+
+    #[test]
+    fn test_find_match_with_plural_variant() {
+        // Backend has singular: /api/session/:id
+        let endpoints = vec![EndpointEntry {
+            normalized_path: normalize_api_path("/api/session/:id"),
+            method: HttpMethod::Get,
+        }];
+        // Frontend uses plural: /api/sessions/:id
+        let frontend_url = normalize_api_path("/api/sessions/:id");
+        let result = find_matching_endpoint(&frontend_url, HttpMethod::Get, &endpoints);
+        assert!(
+            matches!(result, EndpointMatch::Exact),
+            "Expected /api/sessions/:id to match /api/session/:id via plural variant"
+        );
     }
 }

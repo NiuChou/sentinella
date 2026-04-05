@@ -236,7 +236,7 @@ pub struct EventConfig {
 // EnvConfig
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct EnvConfig {
     #[serde(default)]
     pub code_patterns: Vec<String>,
@@ -244,7 +244,54 @@ pub struct EnvConfig {
     pub deploy_patterns: Vec<String>,
     #[serde(default)]
     pub env_example: Option<String>,
+    #[serde(default = "default_exclude_paths")]
+    pub exclude_paths: Vec<String>,
+    #[serde(default = "default_exclude_vars")]
+    pub exclude_vars: Vec<String>,
 }
+
+impl Default for EnvConfig {
+    fn default() -> Self {
+        Self {
+            code_patterns: Vec::new(),
+            deploy_patterns: Vec::new(),
+            env_example: None,
+            exclude_paths: default_exclude_paths(),
+            exclude_vars: default_exclude_vars(),
+        }
+    }
+}
+
+fn default_exclude_paths() -> Vec<String> {
+    vec![
+        "node_modules/".into(),
+        "vendor/".into(),
+        ".next/".into(),
+        "dist/".into(),
+        "build/".into(),
+        "target/".into(),
+        ".git/".into(),
+        "__pycache__/".into(),
+        ".venv/".into(),
+        "venv/".into(),
+    ]
+}
+
+fn default_exclude_vars() -> Vec<String> {
+    vec![
+        "NODE_ENV".into(),
+        "HOME".into(),
+        "PATH".into(),
+        "USER".into(),
+        "SHELL".into(),
+        "LANG".into(),
+        "CI".into(),
+    ]
+}
+
+/// Well-known env var prefixes provided by CI/CD and hosting platforms.
+/// Variables matching these prefixes are excluded by default.
+pub const EXCLUDED_VAR_PREFIXES: &[&str] = &["GITHUB_", "VERCEL_", "NETLIFY_"];
 
 // ---------------------------------------------------------------------------
 // DataIsolationConfig
