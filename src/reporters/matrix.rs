@@ -26,7 +26,11 @@ pub fn render_matrix(results: &[ScanResult], config: &Config) {
     println!();
 
     if !config.modules.is_empty() {
-        render_module_layer_table(&config.modules, &config.flows);
+        render_module_layer_table(
+            &config.modules,
+            &config.flows,
+            &config.required_layers,
+        );
         println!();
     }
 
@@ -62,58 +66,44 @@ struct LayerStatus {
 /// Assessed coverage for one module across all layers.
 struct ModuleCoverage {
     name: String,
-    backend: LayerStatus,
-    bff: LayerStatus,
-    hook: LayerStatus,
-    page: LayerStatus,
+    /// Dynamic layer statuses in the same order as `required_layers`.
+    layers: Vec<(String, LayerStatus)>,
     flow: LayerStatus,
     score_pct: u8,
 }
 
-fn assess_module(module: &ModuleConfig, flows: &[FlowConfig]) -> ModuleCoverage {
-    let backend = match &module.backend {
-        Some(pattern) => LayerStatus {
-            covered: true,
-            detail: format!("pattern:{pattern}"),
-        },
-        None => LayerStatus {
-            covered: false,
-            detail: String::new(),
-        },
-    };
+/// Retrieve the `Option<String>` pattern for a given layer name from a `ModuleConfig`.
+fn module_layer_pattern(module: &ModuleConfig, layer_name: &str) -> Option<String> {
+    match layer_name {
+        "backend" => module.backend.clone(),
+        "bff" => module.bff.clone(),
+        "hooks" => module.hooks.clone(),
+        "page" => module.page.clone(),
+        _ => None,
+    }
+}
 
-    let bff = match &module.bff {
-        Some(_) => LayerStatus {
-            covered: true,
-            detail: "yes".into(),
-        },
-        None => LayerStatus {
-            covered: false,
-            detail: String::new(),
-        },
-    };
-
-    let hook = match &module.hooks {
-        Some(_) => LayerStatus {
-            covered: true,
-            detail: "yes".into(),
-        },
-        None => LayerStatus {
-            covered: false,
-            detail: String::new(),
-        },
-    };
-
-    let page = match &module.page {
-        Some(_) => LayerStatus {
-            covered: true,
-            detail: "yes".into(),
-        },
-        None => LayerStatus {
-            covered: false,
-            detail: String::new(),
-        },
-    };
+fn assess_module(
+    module: &ModuleConfig,
+    flows: &[FlowConfig],
+    required_layers: &[String],
+) -> ModuleCoverage {
+    let layers: Vec<(String, LayerStatus)> = required_layers
+        .iter()
+        .map(|layer_name| {
+            let status = match module_layer_pattern(module, layer_name) {
+                Some(pattern) => LayerStatus {
+                    covered: true,
+                    detail: format!("pattern:{pattern}"),
+                },
+                None => LayerStatus {
+                    covered: false,
+                    detail: String::new(),
+                },
+            };
+            (layer_name.clone(), status)
+        })
+        .collect();
 
     let has_flow = has_module_flow(&module.name, flows);
     let flow = LayerStatus {
@@ -121,14 +111,11 @@ fn assess_module(module: &ModuleConfig, flows: &[FlowConfig]) -> ModuleCoverage 
         detail: if has_flow { "yes".into() } else { String::new() },
     };
 
-    let score_pct = compute_module_score(&backend, &bff, &hook, &page, &flow);
+    let score_pct = compute_module_score(&layers, &flow);
 
     ModuleCoverage {
         name: module.name.clone(),
-        backend,
-        bff,
-        hook,
-        page,
+        layers,
         flow,
         score_pct,
     }
@@ -141,36 +128,32 @@ fn has_module_flow(module_name: &str, flows: &[FlowConfig]) -> bool {
         .any(|f| f.name.to_lowercase().contains(&lower) && !f.steps.is_empty())
 }
 
-fn compute_module_score(
-    backend: &LayerStatus,
-    bff: &LayerStatus,
-    hook: &LayerStatus,
-    page: &LayerStatus,
-    flow: &LayerStatus,
-) -> u8 {
-    let layers = [
-        backend.covered,
-        bff.covered,
-        hook.covered,
-        page.covered,
-        flow.covered,
-    ];
-    let covered = layers.iter().filter(|&&c| c).count() as u8;
-    let total = layers.len() as u8;
-    ((u16::from(covered) * 100) / u16::from(total)) as u8
+fn compute_module_score(layers: &[(String, LayerStatus)], flow: &LayerStatus) -> u8 {
+    let layer_covered = layers.iter().filter(|(_, s)| s.covered).count();
+    let flow_covered = if flow.covered { 1 } else { 0 };
+    let covered = layer_covered + flow_covered;
+    let total = layers.len() + 1; // layers + flow
+    if total == 0 {
+        return 100;
+    }
+    ((covered as u16 * 100) / total as u16) as u8
 }
 
-fn render_module_layer_table(modules: &[ModuleConfig], flows: &[FlowConfig]) {
+fn render_module_layer_table(
+    modules: &[ModuleConfig],
+    flows: &[FlowConfig],
+    required_layers: &[String],
+) {
     let coverages: Vec<ModuleCoverage> = modules
         .iter()
-        .map(|m| assess_module(m, flows))
+        .map(|m| assess_module(m, flows, required_layers))
         .collect();
 
     let mut table = Table::new();
     table
         .load_preset(UTF8_FULL_CONDENSED)
         .set_content_arrangement(ContentArrangement::Dynamic)
-        .set_header(module_table_header());
+        .set_header(module_table_header(required_layers));
 
     for cov in &coverages {
         table.add_row(module_table_row(cov));
@@ -179,28 +162,54 @@ fn render_module_layer_table(modules: &[ModuleConfig], flows: &[FlowConfig]) {
     println!("{table}");
 }
 
-fn module_table_header() -> Vec<Cell> {
-    let labels = ["Module", "Backend", "BFF", "Hook", "Page", "Flow", "Score"];
-    labels
-        .iter()
-        .map(|l| {
-            Cell::new(l)
+fn module_table_header(required_layers: &[String]) -> Vec<Cell> {
+    let mut cells = vec![Cell::new("Module")
+        .add_attribute(Attribute::Bold)
+        .fg(Color::White)];
+
+    for layer in required_layers {
+        // Capitalize first letter for display
+        let display_name = capitalize_first(layer);
+        cells.push(
+            Cell::new(display_name)
                 .add_attribute(Attribute::Bold)
-                .fg(Color::White)
-        })
-        .collect()
+                .fg(Color::White),
+        );
+    }
+
+    cells.push(
+        Cell::new("Flow")
+            .add_attribute(Attribute::Bold)
+            .fg(Color::White),
+    );
+    cells.push(
+        Cell::new("Score")
+            .add_attribute(Attribute::Bold)
+            .fg(Color::White),
+    );
+
+    cells
 }
 
 fn module_table_row(cov: &ModuleCoverage) -> Vec<Cell> {
-    vec![
-        Cell::new(&cov.name),
-        layer_cell(&cov.backend),
-        layer_cell(&cov.bff),
-        layer_cell(&cov.hook),
-        layer_cell(&cov.page),
-        layer_cell(&cov.flow),
-        score_cell(cov.score_pct),
-    ]
+    let mut cells = vec![Cell::new(&cov.name)];
+
+    for (_layer_name, status) in &cov.layers {
+        cells.push(layer_cell(status));
+    }
+
+    cells.push(layer_cell(&cov.flow));
+    cells.push(score_cell(cov.score_pct));
+
+    cells
+}
+
+fn capitalize_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+    }
 }
 
 fn layer_cell(status: &LayerStatus) -> Cell {
@@ -368,24 +377,106 @@ mod tests {
         assert_eq!(overall_score(&results), 70);
     }
 
+    fn default_required_layers() -> Vec<String> {
+        vec![
+            "backend".into(),
+            "bff".into(),
+            "hooks".into(),
+            "page".into(),
+        ]
+    }
+
     #[test]
     fn compute_module_score_all_covered() {
-        let yes = LayerStatus { covered: true, detail: String::new() };
-        assert_eq!(compute_module_score(&yes, &yes, &yes, &yes, &yes), 100);
+        let layers: Vec<(String, LayerStatus)> = default_required_layers()
+            .into_iter()
+            .map(|name| {
+                (
+                    name,
+                    LayerStatus {
+                        covered: true,
+                        detail: String::new(),
+                    },
+                )
+            })
+            .collect();
+        let flow = LayerStatus {
+            covered: true,
+            detail: String::new(),
+        };
+        assert_eq!(compute_module_score(&layers, &flow), 100);
     }
 
     #[test]
     fn compute_module_score_none_covered() {
-        let no = LayerStatus { covered: false, detail: String::new() };
-        assert_eq!(compute_module_score(&no, &no, &no, &no, &no), 0);
+        let layers: Vec<(String, LayerStatus)> = default_required_layers()
+            .into_iter()
+            .map(|name| {
+                (
+                    name,
+                    LayerStatus {
+                        covered: false,
+                        detail: String::new(),
+                    },
+                )
+            })
+            .collect();
+        let flow = LayerStatus {
+            covered: false,
+            detail: String::new(),
+        };
+        assert_eq!(compute_module_score(&layers, &flow), 0);
     }
 
     #[test]
     fn compute_module_score_partial() {
-        let yes = LayerStatus { covered: true, detail: String::new() };
-        let no = LayerStatus { covered: false, detail: String::new() };
-        // 1 out of 5 = 20%
-        assert_eq!(compute_module_score(&yes, &no, &no, &no, &no), 20);
+        // 1 layer out of 4 + flow = 1/5 = 20%
+        let layers: Vec<(String, LayerStatus)> = default_required_layers()
+            .into_iter()
+            .enumerate()
+            .map(|(i, name)| {
+                (
+                    name,
+                    LayerStatus {
+                        covered: i == 0,
+                        detail: String::new(),
+                    },
+                )
+            })
+            .collect();
+        let flow = LayerStatus {
+            covered: false,
+            detail: String::new(),
+        };
+        assert_eq!(compute_module_score(&layers, &flow), 20);
+    }
+
+    #[test]
+    fn compute_module_score_three_layers_no_bff() {
+        // With required_layers = ["backend", "hooks", "page"], all covered + flow
+        // = 4/4 = 100%
+        let required = vec![
+            "backend".to_string(),
+            "hooks".to_string(),
+            "page".to_string(),
+        ];
+        let layers: Vec<(String, LayerStatus)> = required
+            .into_iter()
+            .map(|name| {
+                (
+                    name,
+                    LayerStatus {
+                        covered: true,
+                        detail: String::new(),
+                    },
+                )
+            })
+            .collect();
+        let flow = LayerStatus {
+            covered: true,
+            detail: String::new(),
+        };
+        assert_eq!(compute_module_score(&layers, &flow), 100);
     }
 
     #[test]
@@ -428,12 +519,10 @@ mod tests {
                 page: Some("/inbox".into()),
             }],
         }];
-        let cov = assess_module(&module, &flows);
+        let required = default_required_layers();
+        let cov = assess_module(&module, &flows, &required);
         assert_eq!(cov.score_pct, 100);
-        assert!(cov.backend.covered);
-        assert!(cov.bff.covered);
-        assert!(cov.hook.covered);
-        assert!(cov.page.covered);
+        assert!(cov.layers.iter().all(|(_, s)| s.covered));
         assert!(cov.flow.covered);
     }
 
@@ -446,10 +535,42 @@ mod tests {
             hooks: None,
             page: None,
         };
-        let cov = assess_module(&module, &[]);
+        let required = default_required_layers();
+        let cov = assess_module(&module, &[], &required);
         assert_eq!(cov.score_pct, 20);
-        assert!(cov.backend.covered);
-        assert!(!cov.bff.covered);
+        assert!(cov.layers[0].1.covered); // backend
+        assert!(!cov.layers[1].1.covered); // bff
+    }
+
+    #[test]
+    fn assess_module_no_bff_required() {
+        // When bff is not in required_layers, a module without bff gets full score
+        let module = ModuleConfig {
+            name: "CRM".into(),
+            backend: Some("services/crm/**".into()),
+            bff: None,
+            hooks: Some("hooks/useCRM*".into()),
+            page: Some("pages/crm/**".into()),
+        };
+        let flows = vec![FlowConfig {
+            name: "CRM create lead".into(),
+            steps: vec![crate::config::schema::FlowStepConfig {
+                action: "create".into(),
+                api: "/api/leads".into(),
+                page: None,
+            }],
+        }];
+        let required = vec![
+            "backend".to_string(),
+            "hooks".to_string(),
+            "page".to_string(),
+        ];
+        let cov = assess_module(&module, &flows, &required);
+        // 3 layers + flow = 4/4 = 100%
+        assert_eq!(cov.score_pct, 100);
+        // Should only have 3 layer entries, no bff
+        assert_eq!(cov.layers.len(), 3);
+        assert!(cov.layers.iter().all(|(name, _)| name != "bff"));
     }
 
     #[test]

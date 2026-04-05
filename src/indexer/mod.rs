@@ -67,12 +67,10 @@ pub fn build_index(root: &Path, _config: &Config) -> Result<Arc<IndexStore>> {
         // Find the first parser whose extension list matches this file.
         let matching_parser = parsers.iter().find(|parser| {
             parser.extensions().iter().any(|&pattern| {
-                if pattern.contains('/') || !pattern.contains('.') {
-                    // Pattern is a filename prefix (e.g. "Dockerfile", ".env")
-                    file_name == pattern || file_name.starts_with(pattern)
-                } else {
-                    ext == pattern
-                }
+                ext == pattern
+                    || file_name == pattern
+                    || (file_name.starts_with(pattern)
+                        && file_name.as_bytes().get(pattern.len()) == Some(&b'.'))
             })
         });
 
@@ -146,5 +144,32 @@ mod tests {
     #[test]
     fn binary_detection_handles_empty_input() {
         assert!(!is_likely_binary(b""));
+    }
+
+    /// Helper that replicates the matching logic used in `build_index` so we
+    /// can unit-test it in isolation without needing real files on disk.
+    fn matches_pattern(file_name: &str, ext: &str, pattern: &str) -> bool {
+        ext == pattern
+            || file_name == pattern
+            || (file_name.starts_with(pattern)
+                && file_name.as_bytes().get(pattern.len()) == Some(&b'.'))
+    }
+
+    #[test]
+    fn test_extension_matching_logic() {
+        // 1. "routes.py" matches pattern "py" via extension
+        assert!(matches_pattern("routes.py", "py", "py"));
+
+        // 2. "Dockerfile" matches pattern "Dockerfile" via exact file_name
+        assert!(matches_pattern("Dockerfile", "", "Dockerfile"));
+
+        // 3. "Dockerfile.dev" matches pattern "Dockerfile" via starts_with
+        assert!(matches_pattern("Dockerfile.dev", "dev", "Dockerfile"));
+
+        // 4. "app.ts" matches pattern "ts" via extension
+        assert!(matches_pattern("app.ts", "ts", "ts"));
+
+        // 5. "pyproject.toml" must NOT match pattern "py" — ext is "toml"
+        assert!(!matches_pattern("pyproject.toml", "toml", "py"));
     }
 }

@@ -261,6 +261,7 @@ mod tests {
             output: Default::default(),
             dispatch: Default::default(),
             data_isolation: Default::default(),
+            required_layers: Default::default(),
         }
     }
 

@@ -5,6 +5,15 @@ fn default_version() -> String {
     "1.0".into()
 }
 
+fn default_required_layers() -> Vec<String> {
+    vec![
+        "backend".into(),
+        "bff".into(),
+        "hooks".into(),
+        "page".into(),
+    ]
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -33,6 +42,9 @@ pub struct Config {
     pub dispatch: DispatchConfig,
     #[serde(default)]
     pub data_isolation: DataIsolationConfig,
+    /// Layers required for S2 cross-layer tracing. Defaults to ["backend", "bff", "hooks", "page"]
+    #[serde(default = "default_required_layers")]
+    pub required_layers: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
