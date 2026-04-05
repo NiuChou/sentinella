@@ -1,0 +1,102 @@
+# Sentinella configuration — monorepo project template
+# Docs: https://github.com/sentinella-cli/sentinella
+
+version: "1.0"
+project: my-monorepo
+type: monorepo
+
+# Layer definitions — one per package/workspace
+layers:
+  api:
+    pattern: "packages/api/src/**/*.ts"
+    api_pattern: "packages/api/src/routes/**/*.ts"
+    stub_indicators:
+      - "TODO"
+      - "FIXME"
+      - "STUB"
+    real_data_indicators:
+      - "prisma."
+      - "db."
+  web:
+    pattern: "packages/web/src/**/*.tsx"
+    stub_indicators:
+      - "TODO"
+      - "placeholder"
+    real_data_indicators:
+      - "useQuery"
+      - "useSWR"
+      - "fetch("
+  shared:
+    pattern: "packages/shared/src/**/*.ts"
+    stub_indicators:
+      - "TODO"
+      - "FIXME"
+    real_data_indicators: []
+
+# Module cross-package mapping
+modules:
+  - name: auth
+    backend: "packages/api/src/auth"
+    hooks: "packages/web/src/hooks/useAuth.ts"
+    page: "packages/web/src/pages/login.tsx"
+  - name: billing
+    backend: "packages/api/src/billing"
+    hooks: "packages/web/src/hooks/useBilling.ts"
+    page: "packages/web/src/pages/billing.tsx"
+
+# Critical flows spanning packages
+flows:
+  - name: user-signup
+    steps:
+      - action: register
+        api: POST /api/auth/register
+        page: packages/web/src/pages/register.tsx
+      - action: verify-email
+        api: POST /api/auth/verify
+        page: packages/web/src/pages/verify.tsx
+
+# Deploy — each package may have its own Dockerfile
+deploy:
+  dockerfile_pattern: "packages/*/Dockerfile"
+  require_healthcheck: true
+  require_pinned_deps: true
+  require_dockerignore: true
+
+# Integration tests
+integration_tests:
+  enabled: true
+  migrations_pattern: "packages/api/db/migrations/**/*.sql"
+  tests_pattern: "packages/api/tests/integration/**/*.test.ts"
+  exclude_tables:
+    - _prisma_migrations
+  require_rls_alignment: true
+  min_coverage: 80
+
+# Events
+events:
+  producer_patterns:
+    - "packages/api/src/events/producers/**/*.ts"
+  consumer_patterns:
+    - "packages/api/src/events/consumers/**/*.ts"
+
+# Environment variables
+env:
+  code_patterns:
+    - "packages/*/src/**/*.ts"
+    - "packages/*/src/**/*.tsx"
+  deploy_patterns:
+    - "docker-compose*.yml"
+    - "packages/*/Dockerfile"
+    - ".github/workflows/*.yml"
+  env_example: ".env.example"
+
+# Output
+output:
+  format: terminal
+  min_coverage: 80
+  severity: warning
+
+# Dispatch
+dispatch:
+  target: stdout
+  auto_assign: false

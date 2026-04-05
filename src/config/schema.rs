@@ -1,0 +1,385 @@
+use serde::Deserialize;
+use std::collections::HashMap;
+
+fn default_version() -> String {
+    "1.0".into()
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Config {
+    #[serde(default = "default_version")]
+    pub version: String,
+    pub project: String,
+    #[serde(default)]
+    pub r#type: ProjectType,
+    #[serde(default)]
+    pub layers: HashMap<String, LayerConfig>,
+    #[serde(default)]
+    pub modules: Vec<ModuleConfig>,
+    #[serde(default)]
+    pub flows: Vec<FlowConfig>,
+    #[serde(default)]
+    pub deploy: DeployConfig,
+    #[serde(default)]
+    pub integration_tests: IntegrationTestConfig,
+    #[serde(default)]
+    pub events: EventConfig,
+    #[serde(default)]
+    pub env: EnvConfig,
+    #[serde(default)]
+    pub output: OutputConfig,
+    #[serde(default)]
+    pub dispatch: DispatchConfig,
+    #[serde(default)]
+    pub data_isolation: DataIsolationConfig,
+}
+
+// ---------------------------------------------------------------------------
+// ProjectType
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProjectType {
+    Fullstack,
+    BackendOnly,
+    Monorepo,
+}
+
+impl Default for ProjectType {
+    fn default() -> Self {
+        Self::Fullstack
+    }
+}
+
+// ---------------------------------------------------------------------------
+// LayerConfig
+// ---------------------------------------------------------------------------
+
+fn default_stub_indicators() -> Vec<String> {
+    vec![
+        "TODO".into(),
+        "FIXME".into(),
+        "STUB".into(),
+        "PLACEHOLDER".into(),
+        "not implemented".into(),
+    ]
+}
+
+fn default_real_data_indicators() -> Vec<String> {
+    vec![
+        "fetch(".into(),
+        "axios.".into(),
+        "useQuery".into(),
+        "useSWR".into(),
+        "prisma.".into(),
+    ]
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct LayerConfig {
+    pub pattern: String,
+    #[serde(default)]
+    pub api_pattern: Option<String>,
+    #[serde(default = "default_stub_indicators")]
+    pub stub_indicators: Vec<String>,
+    #[serde(default = "default_real_data_indicators")]
+    pub real_data_indicators: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
+// ModuleConfig
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ModuleConfig {
+    pub name: String,
+    #[serde(default)]
+    pub backend: Option<String>,
+    #[serde(default)]
+    pub bff: Option<String>,
+    #[serde(default)]
+    pub hooks: Option<String>,
+    #[serde(default)]
+    pub page: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// FlowConfig / FlowStepConfig
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FlowConfig {
+    pub name: String,
+    #[serde(default)]
+    pub steps: Vec<FlowStepConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FlowStepConfig {
+    pub action: String,
+    pub api: String,
+    #[serde(default)]
+    pub page: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// DeployConfig
+// ---------------------------------------------------------------------------
+
+fn default_dockerfile_pattern() -> String {
+    "**/Dockerfile".into()
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DeployConfig {
+    #[serde(default = "default_dockerfile_pattern")]
+    pub dockerfile_pattern: String,
+    #[serde(default = "default_true")]
+    pub require_healthcheck: bool,
+    #[serde(default = "default_true")]
+    pub require_pinned_deps: bool,
+    #[serde(default = "default_true")]
+    pub require_dockerignore: bool,
+}
+
+impl Default for DeployConfig {
+    fn default() -> Self {
+        Self {
+            dockerfile_pattern: default_dockerfile_pattern(),
+            require_healthcheck: true,
+            require_pinned_deps: true,
+            require_dockerignore: true,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// IntegrationTestConfig
+// ---------------------------------------------------------------------------
+
+fn default_migrations_pattern() -> String {
+    "db/migrations/**/*.sql".into()
+}
+
+fn default_tests_pattern() -> String {
+    "tests/integration/**/*.test.ts".into()
+}
+
+fn default_exclude_tables() -> Vec<String> {
+    vec!["_prisma_migrations".into()]
+}
+
+fn default_min_coverage() -> u8 {
+    80
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct IntegrationTestConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_migrations_pattern")]
+    pub migrations_pattern: String,
+    #[serde(default = "default_tests_pattern")]
+    pub tests_pattern: String,
+    #[serde(default = "default_exclude_tables")]
+    pub exclude_tables: Vec<String>,
+    #[serde(default = "default_true")]
+    pub require_rls_alignment: bool,
+    #[serde(default = "default_min_coverage")]
+    pub min_coverage: u8,
+}
+
+impl Default for IntegrationTestConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            migrations_pattern: default_migrations_pattern(),
+            tests_pattern: default_tests_pattern(),
+            exclude_tables: default_exclude_tables(),
+            require_rls_alignment: true,
+            min_coverage: default_min_coverage(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// EventConfig
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct EventConfig {
+    #[serde(default)]
+    pub producer_patterns: Vec<String>,
+    #[serde(default)]
+    pub consumer_patterns: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
+// EnvConfig
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct EnvConfig {
+    #[serde(default)]
+    pub code_patterns: Vec<String>,
+    #[serde(default)]
+    pub deploy_patterns: Vec<String>,
+    #[serde(default)]
+    pub env_example: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// DataIsolationConfig
+// ---------------------------------------------------------------------------
+
+fn default_tenant_column() -> String {
+    "user_id".into()
+}
+
+fn default_rls_session_var() -> String {
+    "app.current_user_id".into()
+}
+
+fn default_credential_keys() -> Vec<String> {
+    vec![
+        "password".into(),
+        "secret".into(),
+        "api_key".into(),
+        "access_key".into(),
+        "token".into(),
+    ]
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DataIsolationConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_tenant_column")]
+    pub tenant_column: String,
+    #[serde(default)]
+    pub tenant_column_aliases: Vec<String>,
+    #[serde(default = "default_rls_session_var")]
+    pub rls_session_var: String,
+    #[serde(default)]
+    pub exclude_tables: Vec<String>,
+    #[serde(default)]
+    pub exclude_redis_patterns: Vec<String>,
+    #[serde(default)]
+    pub admin_roles: Vec<String>,
+    #[serde(default = "default_credential_keys")]
+    pub credential_keys: Vec<String>,
+}
+
+impl Default for DataIsolationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            tenant_column: default_tenant_column(),
+            tenant_column_aliases: Vec::new(),
+            rls_session_var: default_rls_session_var(),
+            exclude_tables: Vec::new(),
+            exclude_redis_patterns: Vec::new(),
+            admin_roles: Vec::new(),
+            credential_keys: default_credential_keys(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// OutputConfig
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum OutputFormat {
+    Terminal,
+    Json,
+    Markdown,
+    Notion,
+}
+
+impl Default for OutputFormat {
+    fn default() -> Self {
+        Self::Terminal
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum SeverityLevel {
+    Warning,
+    Error,
+}
+
+impl Default for SeverityLevel {
+    fn default() -> Self {
+        Self::Warning
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct OutputConfig {
+    #[serde(default)]
+    pub format: OutputFormat,
+    #[serde(default = "default_min_coverage")]
+    pub min_coverage: u8,
+    #[serde(default)]
+    pub severity: SeverityLevel,
+}
+
+impl Default for OutputConfig {
+    fn default() -> Self {
+        Self {
+            format: OutputFormat::default(),
+            min_coverage: default_min_coverage(),
+            severity: SeverityLevel::default(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DispatchConfig
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum DispatchTarget {
+    Stdout,
+    Notion,
+    Github,
+}
+
+impl Default for DispatchTarget {
+    fn default() -> Self {
+        Self::Stdout
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DispatchConfig {
+    #[serde(default)]
+    pub target: DispatchTarget,
+    #[serde(default)]
+    pub notion_database_id: Option<String>,
+    #[serde(default)]
+    pub github_repo: Option<String>,
+    #[serde(default)]
+    pub auto_assign: bool,
+}
+
+impl Default for DispatchConfig {
+    fn default() -> Self {
+        Self {
+            target: DispatchTarget::default(),
+            notion_database_id: None,
+            github_repo: None,
+            auto_assign: false,
+        }
+    }
+}

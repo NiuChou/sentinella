@@ -1,0 +1,15 @@
+---
+source: src/reporters/matrix.rs
+expression: results
+---
+- scanner: S1-stub-detector
+  findings: []
+  score: 100
+  summary: No stubs found
+- scanner: S6-residue-finder
+  findings:
+    - scanner: S6
+      severity: warning
+      message: TODO residue in api.ts
+  score: 85
+  summary: 1 residue marker

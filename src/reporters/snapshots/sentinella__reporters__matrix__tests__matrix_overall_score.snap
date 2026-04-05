@@ -1,0 +1,5 @@
+---
+source: src/reporters/matrix.rs
+expression: score
+---
+80

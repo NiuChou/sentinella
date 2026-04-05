@@ -1,0 +1,60 @@
+[package]
+name = "sentinella"
+version = "0.1.0"
+edition = "2021"
+description = "System completeness audit tool — detect stub code, cross-layer gaps, API contract drift, and generate task breakdowns"
+license = "MIT"
+
+[[bin]]
+name = "sentinella"
+path = "src/main.rs"
+
+[dependencies]
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+serde_json = "1"
+
+# AST parsing
+tree-sitter = "0.24"
+tree-sitter-typescript = "0.23"
+tree-sitter-python = "0.23"
+tree-sitter-go = "0.23"
+
+# Streaming iterator (required by tree-sitter 0.24 QueryMatches)
+streaming-iterator = "0.1"
+
+# Concurrency
+rayon = "1"
+dashmap = "6"
+
+# Text processing
+regex = "1"
+
+# File traversal
+ignore = "0.4"
+globset = "0.4"
+
+# Terminal output
+comfy-table = "7"
+owo-colors = "4"
+
+# Error handling
+miette = { version = "7", features = ["fancy"] }
+thiserror = "2"
+anyhow = "1"
+
+# HTTP client (Notion/GitHub API)
+ureq = { version = "3", features = ["json"] }
+
+[dev-dependencies]
+insta = { version = "1", features = ["yaml"] }
+tempfile = "3"
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1

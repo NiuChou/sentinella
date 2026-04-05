@@ -1,0 +1,12 @@
+version: "1.0"
+project: sentinella
+type: fullstack
+
+layers:
+  backend:
+    pattern: "src/**/*.rs"
+
+output:
+  format: terminal
+  min_coverage: 80
+  severity: warning

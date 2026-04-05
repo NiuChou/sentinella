@@ -1,0 +1,35 @@
+---
+source: src/reporters/gap.rs
+expression: json
+---
+[
+  {
+    "scanner": "S1-stub-detector",
+    "findings": [
+      {
+        "scanner": "S1",
+        "severity": "critical",
+        "message": "Stub detected in useData.ts",
+        "file": "src/hooks/useData.ts",
+        "line": 10,
+        "suggestion": "Replace with real API call"
+      }
+    ],
+    "score": 75,
+    "summary": "1 stub detected"
+  },
+  {
+    "scanner": "S6-residue-finder",
+    "findings": [
+      {
+        "scanner": "S6",
+        "severity": "warning",
+        "message": "TODO residue found",
+        "file": "src/api.ts",
+        "line": 42
+      }
+    ],
+    "score": 90,
+    "summary": "1 residue marker"
+  }
+]

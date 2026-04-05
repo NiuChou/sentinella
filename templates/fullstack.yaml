@@ -1,0 +1,147 @@
+# Sentinella configuration — fullstack project template
+# Docs: https://github.com/sentinella-cli/sentinella
+
+version: "1.0"
+project: my-fullstack-app
+type: fullstack
+
+# Layer definitions — map logical layers to file patterns
+layers:
+  backend:
+    pattern: "src/server/**/*.ts"
+    api_pattern: "src/server/routes/**/*.ts"
+    stub_indicators:
+      - "TODO"
+      - "FIXME"
+      - "STUB"
+      - "PLACEHOLDER"
+      - "not implemented"
+    real_data_indicators:
+      - "prisma."
+      - "db."
+      - "fetch("
+  bff:
+    pattern: "src/api/**/*.ts"
+    api_pattern: "src/api/routes/**/*.ts"
+    stub_indicators:
+      - "TODO"
+      - "FIXME"
+      - "mock"
+    real_data_indicators:
+      - "fetch("
+      - "axios."
+  hooks:
+    pattern: "src/hooks/**/*.ts"
+    stub_indicators:
+      - "TODO"
+      - "hardcoded"
+    real_data_indicators:
+      - "useQuery"
+      - "useSWR"
+      - "useMutation"
+  pages:
+    pattern: "src/pages/**/*.tsx"
+    stub_indicators:
+      - "TODO"
+      - "placeholder"
+    real_data_indicators:
+      - "useQuery"
+      - "useSWR"
+
+# Module cross-layer mapping
+modules:
+  - name: auth
+    backend: "src/server/auth"
+    bff: "src/api/auth"
+    hooks: "src/hooks/useAuth.ts"
+    page: "src/pages/login.tsx"
+  - name: dashboard
+    backend: "src/server/dashboard"
+    bff: "src/api/dashboard"
+    hooks: "src/hooks/useDashboard.ts"
+    page: "src/pages/dashboard.tsx"
+
+# Critical user flows to verify end-to-end
+flows:
+  - name: user-login
+    steps:
+      - action: submit-credentials
+        api: POST /api/auth/login
+        page: src/pages/login.tsx
+      - action: fetch-profile
+        api: GET /api/users/me
+        page: src/pages/dashboard.tsx
+  - name: create-item
+    steps:
+      - action: submit-form
+        api: POST /api/items
+        page: src/pages/items/new.tsx
+      - action: list-items
+        api: GET /api/items
+        page: src/pages/items/index.tsx
+
+# Deploy readiness checks
+deploy:
+  dockerfile_pattern: "**/Dockerfile"
+  require_healthcheck: true
+  require_pinned_deps: true
+  require_dockerignore: true
+
+# Integration test coverage
+integration_tests:
+  enabled: true
+  migrations_pattern: "db/migrations/**/*.sql"
+  tests_pattern: "tests/integration/**/*.test.ts"
+  exclude_tables:
+    - _prisma_migrations
+  require_rls_alignment: true
+  min_coverage: 80
+
+# Event producer/consumer alignment
+events:
+  producer_patterns:
+    - "src/server/events/producers/**/*.ts"
+  consumer_patterns:
+    - "src/server/events/consumers/**/*.ts"
+
+# Environment variable completeness
+env:
+  code_patterns:
+    - "src/**/*.ts"
+    - "src/**/*.tsx"
+  deploy_patterns:
+    - "docker-compose*.yml"
+    - "**/Dockerfile"
+    - ".github/workflows/*.yml"
+  env_example: ".env.example"
+
+# Data isolation checks
+data_isolation:
+  enabled: true
+  tenant_column: "user_id"
+  tenant_column_aliases:
+    - "owner_id"
+  rls_session_var: "app.current_user_id"
+  exclude_tables:
+    - _prisma_migrations
+  exclude_redis_patterns:
+    - "jwt:blacklist:*"
+    - "ratelimit:*"
+  admin_roles: []
+  credential_keys:
+    - password
+    - secret
+    - api_key
+    - access_key
+    - token
+
+# Output settings
+output:
+  format: terminal
+  min_coverage: 80
+  severity: warning
+
+# Task dispatch settings
+dispatch:
+  target: stdout
+  auto_assign: false

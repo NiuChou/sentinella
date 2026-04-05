@@ -1,0 +1,12 @@
+---
+source: src/reporters/gap.rs
+expression: json
+---
+[
+  {
+    "scanner": "S1",
+    "findings": [],
+    "score": 100,
+    "summary": "Clean"
+  }
+]

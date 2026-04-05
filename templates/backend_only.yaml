@@ -1,0 +1,72 @@
+# Sentinella configuration — backend-only project template
+# Docs: https://github.com/sentinella-cli/sentinella
+
+version: "1.0"
+project: my-backend-service
+type: backend-only
+
+# Layer definitions
+layers:
+  backend:
+    pattern: "src/**/*.ts"
+    api_pattern: "src/routes/**/*.ts"
+    stub_indicators:
+      - "TODO"
+      - "FIXME"
+      - "STUB"
+      - "not implemented"
+    real_data_indicators:
+      - "prisma."
+      - "db."
+      - "redis."
+
+# Module mapping (backend layers only)
+modules:
+  - name: auth
+    backend: "src/auth"
+  - name: users
+    backend: "src/users"
+
+# Critical API flows
+flows:
+  - name: health-check
+    steps:
+      - action: ping
+        api: GET /health
+
+# Deploy readiness
+deploy:
+  dockerfile_pattern: "**/Dockerfile"
+  require_healthcheck: true
+  require_pinned_deps: true
+  require_dockerignore: true
+
+# Integration tests
+integration_tests:
+  enabled: true
+  migrations_pattern: "db/migrations/**/*.sql"
+  tests_pattern: "tests/integration/**/*.test.ts"
+  exclude_tables:
+    - _prisma_migrations
+  require_rls_alignment: true
+  min_coverage: 80
+
+# Environment variables
+env:
+  code_patterns:
+    - "src/**/*.ts"
+  deploy_patterns:
+    - "docker-compose*.yml"
+    - "**/Dockerfile"
+  env_example: ".env.example"
+
+# Output
+output:
+  format: terminal
+  min_coverage: 80
+  severity: warning
+
+# Dispatch
+dispatch:
+  target: stdout
+  auto_assign: false
