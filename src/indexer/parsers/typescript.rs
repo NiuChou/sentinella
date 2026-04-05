@@ -10,9 +10,9 @@ use super::{
 };
 use crate::indexer::store::{normalize_api_path, IndexStore};
 use crate::indexer::types::{
-    ApiCall, ApiEndpoint, DbWriteOp, DbWriteRef, FileInfo, Framework, HardcodedCredential,
-    HttpMethod, ImportEdge, Language, MiddlewareScope, RedisKeyRef, RedisOp, RlsContextRef,
-    EnvRef, SqlQueryOp, SqlQueryRef, StubIndicator, StubType,
+    ApiCall, ApiEndpoint, DbPoolRef, DbWriteOp, DbWriteRef, FileInfo, Framework,
+    HardcodedCredential, HttpMethod, ImportEdge, Language, MiddlewareScope, RedisKeyRef, RedisOp,
+    RlsContextRef, EnvRef, SqlQueryOp, SqlQueryRef, StubIndicator, StubType,
 };
 
 const ROUTES_QUERY: &str = include_str!("../queries/typescript/routes.scm");
@@ -63,6 +63,7 @@ impl LanguageParser for TypeScriptParser {
         scan_hardcoded_creds_ts(path, source, store);
         scan_sql_query_refs_ts(path, source, store);
         scan_rls_context_ts(path, source, store);
+        scan_db_pool_refs_ts(path, source, store);
 
         Ok(())
     }
@@ -702,6 +703,90 @@ fn scan_sql_query_refs_ts(path: &Path, source: &[u8], store: &IndexStore) {
     }
 }
 
+fn ts_db_pool_re() -> &'static [(Regex, &'static str)] {
+    static PATTERNS: OnceLock<Vec<(Regex, &'static str)>> = OnceLock::new();
+    PATTERNS.get_or_init(|| {
+        vec![
+            (
+                Regex::new(r#"new\s+Pool\(\{[^}]*connectionString[^}]*(DATABASE_URL\w*|process\.env\.(\w+))"#).unwrap(),
+                "pg_pool",
+            ),
+            (
+                Regex::new(r#"new\s+PrismaClient\("#).unwrap(),
+                "prisma",
+            ),
+            (
+                Regex::new(r#"createPool\([^)]*(DATABASE_URL\w*)"#).unwrap(),
+                "create_pool",
+            ),
+        ]
+    })
+}
+
+fn ts_db_pool_var_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?:const|let|var)\s+(\w+)\s*=\s*(?:new\s+Pool|new\s+PrismaClient|createPool)"#).unwrap()
+    })
+}
+
+fn scan_db_pool_refs_ts(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let patterns = ts_db_pool_re();
+    let var_re = ts_db_pool_var_re();
+
+    let mut refs: Vec<DbPoolRef> = Vec::new();
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        for (regex, pattern_kind) in patterns {
+            if !regex.is_match(line_text) {
+                continue;
+            }
+
+            // Extract pool variable name from assignment
+            let pool_name = var_re
+                .captures(line_text)
+                .and_then(|cap| cap.get(1))
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_else(|| "anonymous".to_string());
+
+            // Extract connection env var
+            let connection_var = match *pattern_kind {
+                "pg_pool" => {
+                    let cap = regex.captures(line_text);
+                    cap.and_then(|c| {
+                        c.get(2)
+                            .or_else(|| c.get(1))
+                            .map(|m| m.as_str().to_string())
+                    })
+                }
+                "create_pool" => {
+                    let cap = regex.captures(line_text);
+                    cap.and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
+                }
+                _ => None,
+            };
+
+            let entry = DbPoolRef {
+                pool_name,
+                role_hint: None,
+                connection_var,
+                file: path.to_path_buf(),
+                line: line_num + 1,
+            };
+            refs.push(entry);
+        }
+    }
+
+    if !refs.is_empty() {
+        store.db_pool_refs.entry(path.to_path_buf()).or_default().extend(refs);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -930,6 +1015,36 @@ mod tests {
             refs.iter()
                 .any(|r| r.session_var.contains("app.current_user_id")),
             "Should extract app.current_user_id session var"
+        );
+    }
+
+    #[test]
+    fn detects_ts_db_pool_refs() {
+        let store = parse_fixture("dual_pool.ts");
+        let all_pools = store.all_db_pool_refs();
+        let refs: Vec<_> = all_pools
+            .iter()
+            .flat_map(|(_, pools)| pools.iter())
+            .collect();
+        assert!(
+            refs.len() >= 2,
+            "Should detect at least 2 DB pool refs, found {}",
+            refs.len()
+        );
+        assert!(
+            refs.iter().any(|r| r.pool_name == "rlsPool"),
+            "Should find rlsPool"
+        );
+        assert!(
+            refs.iter().any(|r| r.pool_name == "adminPool"),
+            "Should find adminPool"
+        );
+        // Verify connection vars are extracted
+        let admin = refs.iter().find(|r| r.pool_name == "adminPool").unwrap();
+        assert_eq!(
+            admin.connection_var.as_deref(),
+            Some("DATABASE_URL_ADMIN"),
+            "Should extract DATABASE_URL_ADMIN env var"
         );
     }
 }

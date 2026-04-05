@@ -52,8 +52,16 @@ impl Scanner for DataIsolationAudit {
         findings.extend(d3_findings);
         findings.extend(d4_findings);
         findings.extend(d5_findings);
+        // Dimension D: Pool & Service Isolation
+        let d8_findings = check_dual_pool(ctx, di_config);
+        let d9_findings = check_redis_enumeration(ctx, di_config);
+        let d10_findings = check_cross_service_access(ctx, di_config);
+
         findings.extend(d6_findings);
         findings.extend(d7_findings);
+        findings.extend(d8_findings);
+        findings.extend(d9_findings);
+        findings.extend(d10_findings);
 
         let score = compute_score(&findings);
         let summary = build_summary(&findings, score);
@@ -466,6 +474,274 @@ fn check_hardcoded_creds(ctx: &ScanContext) -> Vec<Finding> {
 }
 
 // ---------------------------------------------------------------------------
+// D8: Dual-Pool Detection — user-facing code using admin DB pool
+// ---------------------------------------------------------------------------
+
+const BACKGROUND_PATH_SEGMENTS: &[&str] = &["/worker/", "/job/", "/cron/", "/migration/", "/seed/"];
+
+fn is_admin_pool(pool_ref: &crate::indexer::types::DbPoolRef, config: &DataIsolationConfig) -> bool {
+    let conn_var_upper = pool_ref
+        .connection_var
+        .as_deref()
+        .unwrap_or("")
+        .to_uppercase();
+
+    let pool_name_lower = pool_ref.pool_name.to_lowercase();
+
+    conn_var_upper.contains("ADMIN")
+        || config
+            .admin_pool_env_vars
+            .iter()
+            .any(|v| pool_ref.connection_var.as_deref() == Some(v.as_str()))
+        || pool_name_lower.contains("admin")
+}
+
+fn is_user_facing_file(
+    file: &std::path::Path,
+    store: &crate::indexer::store::IndexStore,
+) -> bool {
+    let file_str = file.to_string_lossy();
+
+    // If the file defines API endpoints, it's user-facing
+    let defines_routes = store
+        .api_endpoints
+        .iter()
+        .any(|entry| entry.value().iter().any(|ep| ep.file == file));
+
+    if defines_routes {
+        return true;
+    }
+
+    // If the file path does NOT contain background segments, treat as user-facing
+    !BACKGROUND_PATH_SEGMENTS
+        .iter()
+        .any(|seg| file_str.contains(seg))
+}
+
+fn check_dual_pool(ctx: &ScanContext, config: &DataIsolationConfig) -> Vec<Finding> {
+    if config.admin_roles.is_empty() && config.admin_pool_env_vars.is_empty() {
+        return Vec::new();
+    }
+
+    let store = ctx.index;
+    let mut findings = Vec::new();
+
+    for entry in store.db_pool_refs.iter() {
+        let file = entry.key();
+        for pool_ref in entry.value().iter() {
+            if !is_admin_pool(pool_ref, config) {
+                continue;
+            }
+
+            if !is_user_facing_file(file, store) {
+                continue;
+            }
+
+            let conn_var_display = pool_ref
+                .connection_var
+                .as_deref()
+                .unwrap_or("(none)");
+
+            findings.push(
+                Finding::new(
+                    SCANNER_ID,
+                    Severity::Critical,
+                    format!(
+                        "User-facing code in '{}' uses admin DB pool '{}' (env: {}) \
+                         — should use restricted RLS-aware pool",
+                        file.display(),
+                        pool_ref.pool_name,
+                        conn_var_display,
+                    ),
+                )
+                .with_file(file)
+                .with_line(pool_ref.line)
+                .with_suggestion(
+                    "Switch to a restricted, RLS-aware connection pool for user-facing code."
+                        .to_string(),
+                ),
+            );
+        }
+    }
+
+    findings
+}
+
+// ---------------------------------------------------------------------------
+// D9: Redis Key Enumeration Risk — session key without user-id prefix
+// ---------------------------------------------------------------------------
+
+fn is_excluded_redis_key(key_pattern: &str, exclude_patterns: &[String]) -> bool {
+    exclude_patterns.iter().any(|excl| {
+        let excl_prefix = excl.trim_end_matches('*');
+        key_pattern.starts_with(excl_prefix)
+    })
+}
+
+fn check_redis_enumeration(ctx: &ScanContext, config: &DataIsolationConfig) -> Vec<Finding> {
+    let store = ctx.index;
+
+    if store.redis_key_refs.is_empty() {
+        return Vec::new();
+    }
+
+    let mut findings = Vec::new();
+
+    for entry in store.redis_key_refs.iter() {
+        let key_pattern = entry.key();
+
+        if is_excluded_redis_key(key_pattern, &config.exclude_redis_patterns) {
+            continue;
+        }
+
+        let segments: Vec<&str> = key_pattern.split(':').collect();
+
+        // Find the first segment containing "session" or "sid"
+        let session_index = segments.iter().position(|seg| {
+            let lower = seg.to_lowercase();
+            lower.contains("session") || lower.contains("sid")
+        });
+
+        let Some(session_idx) = session_index else {
+            continue;
+        };
+
+        // Check if any EARLIER segment contains "user" or "uid"
+        let has_user_prefix = segments[..session_idx].iter().any(|seg| {
+            let lower = seg.to_lowercase();
+            lower.contains("user") || lower.contains("uid")
+        });
+
+        if has_user_prefix {
+            continue;
+        }
+
+        // Pick a representative ref for file/line context
+        let first_ref = entry.value().first();
+
+        let mut finding = Finding::new(
+            SCANNER_ID,
+            Severity::Warning,
+            format!(
+                "Redis key '{}' uses session identifier without user_id prefix \
+                 — enumerable by session guessing",
+                key_pattern,
+            ),
+        )
+        .with_suggestion(
+            "Prefix the key with a user_id segment, e.g. user:{uid}:session:{sid}".to_string(),
+        );
+
+        if let Some(r) = first_ref {
+            finding = finding.with_file(&r.file).with_line(r.line);
+        }
+
+        findings.push(finding);
+    }
+
+    findings
+}
+
+// ---------------------------------------------------------------------------
+// D10: Cross-Service Data Leak — service queries another service's table
+// ---------------------------------------------------------------------------
+
+fn build_table_ownership(
+    config: &DataIsolationConfig,
+    store: &crate::indexer::store::IndexStore,
+) -> std::collections::HashMap<String, String> {
+    let mut ownership: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+    // 1. Explicit table mappings from config
+    for svc in &config.service_patterns {
+        for table in &svc.tables {
+            ownership.insert(table.clone(), svc.name.clone());
+        }
+    }
+
+    // 2. Infer from db_write_refs: file path -> service directory -> table ownership
+    for entry in store.db_write_refs.iter() {
+        let table_name = entry.key().clone();
+        if ownership.contains_key(&table_name) {
+            continue;
+        }
+
+        for write_ref in entry.value().iter() {
+            let file_str = write_ref.file.to_string_lossy();
+            if let Some(svc) = config
+                .service_patterns
+                .iter()
+                .find(|s| file_str.starts_with(&s.directory))
+            {
+                ownership.insert(table_name.clone(), svc.name.clone());
+                break;
+            }
+        }
+    }
+
+    ownership
+}
+
+fn file_to_service(file: &std::path::Path, config: &DataIsolationConfig) -> Option<String> {
+    let file_str = file.to_string_lossy();
+    config
+        .service_patterns
+        .iter()
+        .find(|s| file_str.starts_with(&s.directory))
+        .map(|s| s.name.clone())
+}
+
+fn check_cross_service_access(ctx: &ScanContext, config: &DataIsolationConfig) -> Vec<Finding> {
+    if config.service_patterns.is_empty() {
+        return Vec::new();
+    }
+
+    let store = ctx.index;
+    let ownership = build_table_ownership(config, store);
+    let mut findings = Vec::new();
+
+    for entry in store.sql_query_refs.iter() {
+        let table_name = entry.key();
+
+        let owning_service = match ownership.get(table_name.as_str()) {
+            Some(s) => s.clone(),
+            None => continue,
+        };
+
+        for query_ref in entry.value().iter() {
+            let querying_service = match file_to_service(&query_ref.file, config) {
+                Some(s) => s,
+                None => continue,
+            };
+
+            if querying_service == owning_service {
+                continue;
+            }
+
+            findings.push(
+                Finding::new(
+                    SCANNER_ID,
+                    Severity::Warning,
+                    format!(
+                        "Service '{}' directly accesses table '{}' owned by service '{}' \
+                         — use API or shared event instead",
+                        querying_service, table_name, owning_service,
+                    ),
+                )
+                .with_file(&query_ref.file)
+                .with_line(query_ref.line)
+                .with_suggestion(format!(
+                    "Call {}'s API or emit an event instead of querying '{}' directly.",
+                    owning_service, table_name,
+                )),
+            );
+        }
+    }
+
+    findings
+}
+
+// ---------------------------------------------------------------------------
 // Scoring & Summary
 // ---------------------------------------------------------------------------
 
@@ -507,13 +783,44 @@ fn build_summary(findings: &[Finding], score: u8) -> String {
         .filter(|f| f.severity == Severity::Info)
         .count();
 
+    let d8_count = findings
+        .iter()
+        .filter(|f| f.message.contains("admin DB pool"))
+        .count();
+    let d9_count = findings
+        .iter()
+        .filter(|f| f.message.contains("session identifier without user_id"))
+        .count();
+    let d10_count = findings
+        .iter()
+        .filter(|f| f.message.contains("directly accesses table"))
+        .count();
+
+    let mut detail_parts: Vec<String> = Vec::new();
+    if d8_count > 0 {
+        detail_parts.push(format!("{} dual-pool", d8_count));
+    }
+    if d9_count > 0 {
+        detail_parts.push(format!("{} redis-enum", d9_count));
+    }
+    if d10_count > 0 {
+        detail_parts.push(format!("{} cross-service", d10_count));
+    }
+
+    let detail_suffix = if detail_parts.is_empty() {
+        String::new()
+    } else {
+        format!(" [{}]", detail_parts.join(", "))
+    };
+
     format!(
-        "{} issue(s) found ({} critical, {} warning, {} info). Score: {}%.",
+        "{} issue(s) found ({} critical, {} warning, {} info). Score: {}%.{}",
         findings.len(),
         critical,
         warning,
         info,
-        score
+        score,
+        detail_suffix,
     )
 }
 
@@ -804,5 +1111,252 @@ mod tests {
         let score = compute_score(&findings);
         // 100 - 15 - 15 - 5 - 2 = 63
         assert_eq!(score, 63);
+    }
+
+    // -----------------------------------------------------------------------
+    // D8: Dual-Pool Detection
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_d8_admin_pool_in_user_code() {
+        let mut config = default_config();
+        config.data_isolation.admin_pool_env_vars = vec!["ADMIN_DATABASE_URL".into()];
+
+        let store = IndexStore::new();
+        let route_file = PathBuf::from("src/routes/users.ts");
+
+        // File defines an API endpoint -> user-facing
+        store.api_endpoints.insert(
+            "/users".into(),
+            vec![ApiEndpoint {
+                method: HttpMethod::Get,
+                path: "/users".into(),
+                file: route_file.clone(),
+                line: 5,
+                framework: Framework::Express,
+            }],
+        );
+
+        // Admin pool ref in that user-facing file
+        store.db_pool_refs.insert(
+            route_file.clone(),
+            vec![DbPoolRef {
+                pool_name: "adminPool".into(),
+                role_hint: None,
+                connection_var: Some("ADMIN_DATABASE_URL".into()),
+                file: route_file,
+                line: 12,
+            }],
+        );
+
+        let ctx = ScanContext {
+            config: &config,
+            index: &store,
+            root_dir: Path::new("/tmp"),
+        };
+        let result = DataIsolationAudit.scan(&ctx);
+        let d8: Vec<_> = result
+            .findings
+            .iter()
+            .filter(|f| f.message.contains("admin DB pool"))
+            .collect();
+        assert!(!d8.is_empty(), "Should flag admin pool in user-facing code");
+        assert_eq!(d8[0].severity, Severity::Critical);
+    }
+
+    #[test]
+    fn test_d8_admin_pool_in_worker_is_ok() {
+        let mut config = default_config();
+        config.data_isolation.admin_pool_env_vars = vec!["ADMIN_DATABASE_URL".into()];
+
+        let store = IndexStore::new();
+        let worker_file = PathBuf::from("src/worker/cleanup.ts");
+
+        store.db_pool_refs.insert(
+            worker_file.clone(),
+            vec![DbPoolRef {
+                pool_name: "adminPool".into(),
+                role_hint: None,
+                connection_var: Some("ADMIN_DATABASE_URL".into()),
+                file: worker_file,
+                line: 8,
+            }],
+        );
+
+        let ctx = ScanContext {
+            config: &config,
+            index: &store,
+            root_dir: Path::new("/tmp"),
+        };
+        let result = DataIsolationAudit.scan(&ctx);
+        let d8: Vec<_> = result
+            .findings
+            .iter()
+            .filter(|f| f.message.contains("admin DB pool"))
+            .collect();
+        assert!(d8.is_empty(), "Admin pool in worker code should not flag");
+    }
+
+    // -----------------------------------------------------------------------
+    // D9: Redis Key Enumeration Risk
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_d9_session_key_without_user_prefix() {
+        let config = default_config();
+        let store = IndexStore::new();
+
+        store.redis_key_refs.insert(
+            "session:state:{id}".into(),
+            vec![RedisKeyRef {
+                key_pattern: "session:state:{id}".into(),
+                operation: RedisOp::Write,
+                has_ttl: true,
+                file: PathBuf::from("src/auth.ts"),
+                line: 20,
+            }],
+        );
+
+        let ctx = ScanContext {
+            config: &config,
+            index: &store,
+            root_dir: Path::new("/tmp"),
+        };
+        let result = DataIsolationAudit.scan(&ctx);
+        let d9: Vec<_> = result
+            .findings
+            .iter()
+            .filter(|f| f.message.contains("session identifier without user_id"))
+            .collect();
+        assert!(
+            !d9.is_empty(),
+            "Should flag session key without user prefix"
+        );
+        assert_eq!(d9[0].severity, Severity::Warning);
+    }
+
+    #[test]
+    fn test_d9_user_prefixed_session_key_is_ok() {
+        let config = default_config();
+        let store = IndexStore::new();
+
+        store.redis_key_refs.insert(
+            "user:{uid}:session:{sid}".into(),
+            vec![RedisKeyRef {
+                key_pattern: "user:{uid}:session:{sid}".into(),
+                operation: RedisOp::Write,
+                has_ttl: true,
+                file: PathBuf::from("src/auth.ts"),
+                line: 25,
+            }],
+        );
+
+        let ctx = ScanContext {
+            config: &config,
+            index: &store,
+            root_dir: Path::new("/tmp"),
+        };
+        let result = DataIsolationAudit.scan(&ctx);
+        let d9: Vec<_> = result
+            .findings
+            .iter()
+            .filter(|f| f.message.contains("session identifier without user_id"))
+            .collect();
+        assert!(d9.is_empty(), "User-prefixed session key should not flag");
+    }
+
+    // -----------------------------------------------------------------------
+    // D10: Cross-Service Data Leak
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_d10_cross_service_access() {
+        use crate::config::schema::ServicePatternConfig;
+
+        let mut config = default_config();
+        config.data_isolation.service_patterns = vec![
+            ServicePatternConfig {
+                name: "billing".into(),
+                directory: "services/billing/".into(),
+                tables: vec!["invoices".into()],
+            },
+            ServicePatternConfig {
+                name: "users".into(),
+                directory: "services/users/".into(),
+                tables: vec!["accounts".into()],
+            },
+        ];
+
+        let store = IndexStore::new();
+
+        // Service "users" queries table "invoices" owned by "billing"
+        store.sql_query_refs.insert(
+            "invoices".into(),
+            vec![SqlQueryRef {
+                table_name: "invoices".into(),
+                operation: SqlQueryOp::Select,
+                has_tenant_filter: true,
+                file: PathBuf::from("services/users/handlers.ts"),
+                line: 42,
+            }],
+        );
+
+        let ctx = ScanContext {
+            config: &config,
+            index: &store,
+            root_dir: Path::new("/tmp"),
+        };
+        let result = DataIsolationAudit.scan(&ctx);
+        let d10: Vec<_> = result
+            .findings
+            .iter()
+            .filter(|f| f.message.contains("directly accesses table"))
+            .collect();
+        assert!(
+            !d10.is_empty(),
+            "Should flag cross-service table access"
+        );
+        assert_eq!(d10[0].severity, Severity::Warning);
+        assert!(d10[0].message.contains("users"));
+        assert!(d10[0].message.contains("billing"));
+    }
+
+    #[test]
+    fn test_d10_own_table_is_ok() {
+        use crate::config::schema::ServicePatternConfig;
+
+        let mut config = default_config();
+        config.data_isolation.service_patterns = vec![ServicePatternConfig {
+            name: "billing".into(),
+            directory: "services/billing/".into(),
+            tables: vec!["invoices".into()],
+        }];
+
+        let store = IndexStore::new();
+
+        // Service "billing" queries its own table "invoices"
+        store.sql_query_refs.insert(
+            "invoices".into(),
+            vec![SqlQueryRef {
+                table_name: "invoices".into(),
+                operation: SqlQueryOp::Select,
+                has_tenant_filter: true,
+                file: PathBuf::from("services/billing/queries.ts"),
+                line: 10,
+            }],
+        );
+
+        let ctx = ScanContext {
+            config: &config,
+            index: &store,
+            root_dir: Path::new("/tmp"),
+        };
+        let result = DataIsolationAudit.scan(&ctx);
+        let d10: Vec<_> = result
+            .findings
+            .iter()
+            .filter(|f| f.message.contains("directly accesses table"))
+            .collect();
+        assert!(d10.is_empty(), "Own table access should not flag");
     }
 }

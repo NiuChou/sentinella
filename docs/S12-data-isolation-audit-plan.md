@@ -506,14 +506,16 @@ Wave 3 (parallel, after Wave 2):
 
 ## 9. Future Extensions / 未来扩展
 
-Not in scope for v1, but designed for:
+> **Update 2026-04-05**: D8, D9, D10 have been implemented. SQL parsing upgraded to sqlparser-rs (hybrid approach).
+> Remaining future extension: tree-sitter for non-SQL languages.
 
-| Extension | Description | Trigger |
-|-----------|-------------|---------|
-| **D8 Dual-Pool Detection** | Verify that user-facing services use restricted DB role, workers use admin role (perseworks `rlspool` pattern) | When `admin_roles` is configured |
-| **D9 Redis Key Enumeration Risk** | Flag Redis keys using `session_id` without `user_id` prefix (lumi-ai session:state pattern) | When `exclude_redis_patterns` is configured |
-| **D10 Cross-Service Data Leak** | In monorepo, verify Service A cannot query Service B's tables directly | When `type: monorepo` is configured |
-| **tree-sitter SQL query** | Replace regex-based SQL extraction with tree-sitter-sql for higher precision | When tree-sitter-sql stabilizes |
+| Extension | Description | Status |
+|-----------|-------------|--------|
+| ~~**D8 Dual-Pool Detection**~~ | Verify that user-facing services use restricted DB role, workers use admin role (perseworks `rlspool` pattern) | **Implemented** |
+| ~~**D9 Redis Key Enumeration Risk**~~ | Flag Redis keys using `session_id` without `user_id` prefix (lumi-ai session:state pattern) | **Implemented** |
+| ~~**D10 Cross-Service Data Leak**~~ | In monorepo, verify Service A cannot query Service B's tables directly | **Implemented** |
+| ~~**tree-sitter SQL query**~~ | Replace regex-based SQL extraction with tree-sitter-sql for higher precision | **Superseded** by `sqlparser-rs` hybrid approach |
+| **tree-sitter for non-SQL languages** | Use tree-sitter for extracting DB writes, Redis patterns, and credentials from TS/Python/Go instead of regex | Planned |
 
 ---
 

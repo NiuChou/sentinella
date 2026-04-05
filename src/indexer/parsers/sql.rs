@@ -3,6 +3,11 @@ use std::sync::OnceLock;
 
 use anyhow::Result;
 use regex::Regex;
+use sqlparser::ast::{
+    AlterTableOperation, GrantObjects, ObjectNamePart, Statement,
+};
+use sqlparser::dialect::PostgreSqlDialect;
+use sqlparser::parser::Parser;
 
 use super::{count_lines, hash_source, LanguageParser};
 use crate::indexer::store::IndexStore;
@@ -27,26 +32,170 @@ impl LanguageParser for SqlParser {
         let source_str = std::str::from_utf8(source)
             .map_err(|e| anyhow::anyhow!("Invalid UTF-8 in SQL file: {e}"))?;
 
-        parse_tables(source_str, store);
-        parse_rls_policies(source_str, store);
-        parse_rls_enable(source_str, store);
-        parse_grants(source_str, store);
-        parse_rls_policy_details(source_str, store);
-        parse_force_rls(source_str, store);
+        // AST-based parsing for well-supported statements
+        parse_with_ast(source_str, store);
+
+        // Regex fallback for PostgreSQL-specific extensions
+        parse_rls_policies_regex(source_str, store);
+        parse_rls_policy_details_regex(source_str, store);
+        parse_force_rls_regex(source_str, store);
 
         Ok(())
     }
 }
 
-fn create_table_re() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(
-            r#"(?i)CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?(\w+)"?\.)?"?(\w+)"?"#,
-        )
-        .unwrap()
-    })
+// ---------------------------------------------------------------------------
+// AST-based parsing (sqlparser-rs)
+// ---------------------------------------------------------------------------
+
+/// Parse SQL source with sqlparser and extract tables, RLS enables, grants,
+/// and FORCE RLS from structured AST nodes.
+fn parse_with_ast(source: &str, store: &IndexStore) {
+    let dialect = PostgreSqlDialect {};
+    let statements = match Parser::parse_sql(&dialect, source) {
+        Ok(stmts) => stmts,
+        Err(_) => {
+            // If sqlparser fails to parse, fall back to regex for everything
+            parse_tables_regex(source, store);
+            parse_rls_enable_regex(source, store);
+            parse_grants_regex(source, store);
+            return;
+        }
+    };
+
+    for stmt in &statements {
+        match stmt {
+            Statement::CreateTable(create_table) => {
+                extract_create_table(create_table, store);
+            }
+            Statement::AlterTable(alter_table) => {
+                extract_alter_table(alter_table, store);
+            }
+            Statement::Grant(grant) => {
+                extract_grant(grant, store);
+            }
+            _ => {}
+        }
+    }
 }
+
+/// Extract table info from a CREATE TABLE statement.
+fn extract_create_table(
+    create_table: &sqlparser::ast::CreateTable,
+    store: &IndexStore,
+) {
+    let (schema_name, table_name) = extract_object_name(&create_table.name);
+    let key = make_key(&schema_name, &table_name);
+
+    store.db_tables.entry(key).or_insert_with(|| TableInfo {
+        schema_name,
+        table_name,
+        has_rls: false,
+        app_role: None,
+    });
+}
+
+/// Extract ALTER TABLE ... ENABLE/FORCE ROW LEVEL SECURITY.
+fn extract_alter_table(
+    alter_table: &sqlparser::ast::AlterTable,
+    store: &IndexStore,
+) {
+    let (schema_name, table_name) = extract_object_name(&alter_table.name);
+    let key = make_key(&schema_name, &table_name);
+
+    for op in &alter_table.operations {
+        match op {
+            AlterTableOperation::EnableRowLevelSecurity => {
+                if let Some(mut entry) = store.db_tables.get_mut(&key) {
+                    entry.has_rls = true;
+                }
+            }
+            AlterTableOperation::ForceRowLevelSecurity => {
+                // FORCE RLS also implies RLS is enabled
+                if let Some(mut entry) = store.db_tables.get_mut(&key) {
+                    entry.has_rls = true;
+                }
+                // Update policy entries (also handled by regex fallback)
+                if let Some(mut policies) = store.rls_policies.get_mut(&key) {
+                    for policy in policies.value_mut().iter_mut() {
+                        policy.has_force = true;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Extract GRANT ... ON table TO role.
+fn extract_grant(
+    grant: &sqlparser::ast::Grant,
+    store: &IndexStore,
+) {
+    let table_refs = match &grant.objects {
+        Some(GrantObjects::Tables(tables)) => tables,
+        _ => return,
+    };
+
+    let role = grant
+        .grantees
+        .first()
+        .map(|g| format!("{g}"))
+        .unwrap_or_default();
+
+    if role.is_empty() {
+        return;
+    }
+
+    for table_ref in table_refs {
+        let (schema_name, table_name) = extract_object_name(table_ref);
+        let key = make_key(&schema_name, &table_name);
+
+        if let Some(mut entry) = store.db_tables.get_mut(&key) {
+            entry.app_role = Some(role.clone());
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Name extraction helpers
+// ---------------------------------------------------------------------------
+
+/// Extract (optional_schema, table_name) from an ObjectName.
+fn extract_object_name(
+    name: &sqlparser::ast::ObjectName,
+) -> (Option<String>, String) {
+    let parts: Vec<String> = name
+        .0
+        .iter()
+        .filter_map(|part| match part {
+            ObjectNamePart::Identifier(ident) => Some(ident.value.clone()),
+            _ => None,
+        })
+        .collect();
+
+    match parts.len() {
+        0 => (None, String::new()),
+        1 => (None, parts[0].clone()),
+        _ => {
+            let table = parts[parts.len() - 1].clone();
+            let schema = parts[parts.len() - 2].clone();
+            (Some(schema), table)
+        }
+    }
+}
+
+/// Build the lookup key "schema.table" or just "table".
+fn make_key(schema: &Option<String>, table: &str) -> String {
+    match schema {
+        Some(s) => format!("{s}.{table}"),
+        None => table.to_string(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Regex fallback parsers (PostgreSQL-specific extensions)
+// ---------------------------------------------------------------------------
 
 fn rls_policy_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
@@ -55,28 +204,7 @@ fn rls_policy_re() -> &'static Regex {
     })
 }
 
-fn rls_enable_re() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(
-            r"(?i)ALTER\s+TABLE\s+(?:(\w+)\.)?(\w+)\s+ENABLE\s+ROW\s+LEVEL\s+SECURITY",
-        )
-        .unwrap()
-    })
-}
-
-fn grant_re() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(
-            r"(?i)GRANT\s+\w+(?:\s*,\s*\w+)*\s+ON\s+(?:TABLE\s+)?(?:(\w+)\.)?(\w+)\s+TO\s+(\w+)",
-        )
-        .unwrap()
-    })
-}
-
 /// Match: CREATE POLICY policy_name ON [schema.]table_name ... TO role_name
-/// Capture groups: policy_name, optional schema, table_name, role_name
 fn rls_policy_detail_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
@@ -100,19 +228,48 @@ fn force_rls_re() -> &'static Regex {
     })
 }
 
-/// Extract CREATE TABLE statements: `CREATE TABLE [IF NOT EXISTS] ["schema".]"name"`
-/// Supports optional double-quoted identifiers around schema and table names.
-fn parse_tables(source: &str, store: &IndexStore) {
-    let re = create_table_re();
+// Regex fallbacks used only when AST parsing fails entirely.
 
+fn create_table_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(
+            r#"(?i)CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?(\w+)"?\.)?"?(\w+)"?"#,
+        )
+        .unwrap()
+    })
+}
+
+fn rls_enable_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(
+            r"(?i)ALTER\s+TABLE\s+(?:(\w+)\.)?(\w+)\s+ENABLE\s+ROW\s+LEVEL\s+SECURITY",
+        )
+        .unwrap()
+    })
+}
+
+fn grant_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(
+            r"(?i)GRANT\s+\w+(?:\s*,\s*\w+)*\s+ON\s+(?:TABLE\s+)?(?:(\w+)\.)?(\w+)\s+TO\s+(\w+)",
+        )
+        .unwrap()
+    })
+}
+
+/// Regex fallback: extract CREATE TABLE statements.
+fn parse_tables_regex(source: &str, store: &IndexStore) {
+    let re = create_table_re();
     for cap in re.captures_iter(source) {
         let schema_name = cap.get(1).map(|m| m.as_str().to_string());
-        let table_name = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
-
-        let key = match &schema_name {
-            Some(s) => format!("{s}.{table_name}"),
-            None => table_name.clone(),
-        };
+        let table_name = cap
+            .get(2)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
+        let key = make_key(&schema_name, &table_name);
 
         store.db_tables.entry(key).or_insert_with(|| TableInfo {
             schema_name,
@@ -123,38 +280,16 @@ fn parse_tables(source: &str, store: &IndexStore) {
     }
 }
 
-/// Detect RLS POLICY statements and mark the corresponding table.
-/// Pattern: `CREATE POLICY ... ON [schema.]table_name`
-fn parse_rls_policies(source: &str, store: &IndexStore) {
-    let re = rls_policy_re();
-
-    for cap in re.captures_iter(source) {
-        let schema = cap.get(1).map(|m| m.as_str().to_string());
-        let table = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
-
-        let key = match &schema {
-            Some(s) => format!("{s}.{table}"),
-            None => table.clone(),
-        };
-
-        if let Some(mut entry) = store.db_tables.get_mut(&key) {
-            entry.has_rls = true;
-        }
-    }
-}
-
-/// Detect ALTER TABLE ... ENABLE ROW LEVEL SECURITY
-fn parse_rls_enable(source: &str, store: &IndexStore) {
+/// Regex fallback: detect ALTER TABLE ... ENABLE ROW LEVEL SECURITY.
+fn parse_rls_enable_regex(source: &str, store: &IndexStore) {
     let re = rls_enable_re();
-
     for cap in re.captures_iter(source) {
         let schema = cap.get(1).map(|m| m.as_str().to_string());
-        let table = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
-
-        let key = match &schema {
-            Some(s) => format!("{s}.{table}"),
-            None => table.clone(),
-        };
+        let table = cap
+            .get(2)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
+        let key = make_key(&schema, &table);
 
         if let Some(mut entry) = store.db_tables.get_mut(&key) {
             entry.has_rls = true;
@@ -162,19 +297,20 @@ fn parse_rls_enable(source: &str, store: &IndexStore) {
     }
 }
 
-/// Detect GRANT statements: `GRANT ... TO role_name`
-fn parse_grants(source: &str, store: &IndexStore) {
+/// Regex fallback: detect GRANT statements.
+fn parse_grants_regex(source: &str, store: &IndexStore) {
     let re = grant_re();
-
     for cap in re.captures_iter(source) {
         let schema = cap.get(1).map(|m| m.as_str().to_string());
-        let table = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
-        let role = cap.get(3).map(|m| m.as_str().to_string()).unwrap_or_default();
-
-        let key = match &schema {
-            Some(s) => format!("{s}.{table}"),
-            None => table.clone(),
-        };
+        let table = cap
+            .get(2)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
+        let role = cap
+            .get(3)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
+        let key = make_key(&schema, &table);
 
         if let Some(mut entry) = store.db_tables.get_mut(&key) {
             entry.app_role = Some(role);
@@ -182,21 +318,40 @@ fn parse_grants(source: &str, store: &IndexStore) {
     }
 }
 
-/// Extract detailed RLS policy information including session variable and role.
-fn parse_rls_policy_details(source: &str, store: &IndexStore) {
+/// Regex: detect RLS policies and mark corresponding tables.
+fn parse_rls_policies_regex(source: &str, store: &IndexStore) {
+    let re = rls_policy_re();
+    for cap in re.captures_iter(source) {
+        let schema = cap.get(1).map(|m| m.as_str().to_string());
+        let table = cap
+            .get(2)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
+        let key = make_key(&schema, &table);
+
+        if let Some(mut entry) = store.db_tables.get_mut(&key) {
+            entry.has_rls = true;
+        }
+    }
+}
+
+/// Regex: extract detailed RLS policy information including session variable and role.
+fn parse_rls_policy_details_regex(source: &str, store: &IndexStore) {
     let policy_re = rls_policy_detail_re();
     let session_re = rls_session_var_re();
 
     for cap in policy_re.captures_iter(source) {
-        let policy_name = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+        let policy_name = cap
+            .get(1)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
         let schema = cap.get(2).map(|m| m.as_str().to_string());
-        let table = cap.get(3).map(|m| m.as_str().to_string()).unwrap_or_default();
+        let table = cap
+            .get(3)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
         let role = cap.get(4).map(|m| m.as_str().to_string());
-
-        let key = match &schema {
-            Some(s) => format!("{s}.{table}"),
-            None => table.clone(),
-        };
+        let key = make_key(&schema, &table);
 
         // Look for current_setting() in the vicinity of this policy
         let match_start = cap.get(0).map(|m| m.start()).unwrap_or(0);
@@ -219,18 +374,16 @@ fn parse_rls_policy_details(source: &str, store: &IndexStore) {
     }
 }
 
-/// Detect FORCE ROW LEVEL SECURITY and update corresponding RlsPolicyInfo entries.
-fn parse_force_rls(source: &str, store: &IndexStore) {
+/// Regex: detect FORCE ROW LEVEL SECURITY and update policies.
+fn parse_force_rls_regex(source: &str, store: &IndexStore) {
     let re = force_rls_re();
-
     for cap in re.captures_iter(source) {
         let schema = cap.get(1).map(|m| m.as_str().to_string());
-        let table = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
-
-        let key = match &schema {
-            Some(s) => format!("{s}.{table}"),
-            None => table.clone(),
-        };
+        let table = cap
+            .get(2)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
+        let key = make_key(&schema, &table);
 
         if let Some(mut policies) = store.rls_policies.get_mut(&key) {
             for policy in policies.value_mut().iter_mut() {
@@ -361,8 +514,9 @@ mod tests {
     fn extracts_session_var_from_policy() {
         let store = parse_fixture("migrations.sql");
         let policies = store.all_rls_policies();
-        let with_session_var: Vec<_> = policies.iter().filter(|p| p.session_var.is_some()).collect();
-        // This may be empty if fixture doesn't have current_setting — that's OK
+        let with_session_var: Vec<_> =
+            policies.iter().filter(|p| p.session_var.is_some()).collect();
+        // This may be empty if fixture doesn't have current_setting -- that's OK
         // The important thing is the parser doesn't crash
         let _ = with_session_var;
     }

@@ -25,6 +25,9 @@ pub struct IndexStore {
     pub rls_policies: DashMap<String, Vec<RlsPolicyInfo>>,
     pub hardcoded_creds: DashMap<PathBuf, Vec<HardcodedCredential>>,
     pub sql_query_refs: DashMap<String, Vec<SqlQueryRef>>,
+    pub db_pool_refs: DashMap<PathBuf, Vec<DbPoolRef>>,
+    pub service_boundaries: DashMap<String, ServiceBoundary>,
+    pub table_ownership: DashMap<String, String>,
 }
 
 impl IndexStore {
@@ -176,6 +179,20 @@ impl IndexStore {
         self.sql_query_refs
             .iter()
             .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_db_pool_refs(&self) -> Vec<(PathBuf, Vec<DbPoolRef>)> {
+        self.db_pool_refs
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect()
+    }
+
+    pub fn all_service_boundaries(&self) -> Vec<(String, ServiceBoundary)> {
+        self.service_boundaries
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
             .collect()
     }
 

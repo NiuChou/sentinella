@@ -269,3 +269,29 @@ pub enum SqlQueryOp {
     Update,
     Delete,
 }
+
+/// D8: A DB connection/pool reference found in application code.
+#[derive(Debug, Clone)]
+pub struct DbPoolRef {
+    pub pool_name: String,
+    pub role_hint: Option<String>,
+    pub connection_var: Option<String>,
+    pub file: PathBuf,
+    pub line: usize,
+}
+
+/// D8: Classification of code context
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServiceContext {
+    UserFacing,
+    Worker,
+    Unknown,
+}
+
+/// D10: A service boundary in a monorepo.
+#[derive(Debug, Clone)]
+pub struct ServiceBoundary {
+    pub service_name: String,
+    pub root_dir: PathBuf,
+    pub owned_tables: Vec<String>,
+}

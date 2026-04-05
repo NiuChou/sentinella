@@ -134,6 +134,13 @@ data_isolation:
     - api_key
     - access_key
     - token
+  # D8: Dual-Pool Detection
+  restricted_pool_env_vars:
+    - DATABASE_URL_APP
+    - DATABASE_URL_RLS
+  admin_pool_env_vars:
+    - DATABASE_URL_ADMIN
+    - DATABASE_URL
 
 # Output settings
 output:

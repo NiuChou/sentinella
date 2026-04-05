@@ -256,6 +256,14 @@ fn default_credential_keys() -> Vec<String> {
     ]
 }
 
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ServicePatternConfig {
+    pub name: String,
+    pub directory: String,
+    #[serde(default)]
+    pub tables: Vec<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct DataIsolationConfig {
     #[serde(default = "default_true")]
@@ -274,6 +282,15 @@ pub struct DataIsolationConfig {
     pub admin_roles: Vec<String>,
     #[serde(default = "default_credential_keys")]
     pub credential_keys: Vec<String>,
+    /// D8: Env var names for restricted (user-facing) DB connections
+    #[serde(default)]
+    pub restricted_pool_env_vars: Vec<String>,
+    /// D8: Env var names for admin DB connections
+    #[serde(default)]
+    pub admin_pool_env_vars: Vec<String>,
+    /// D10: Service directory patterns for monorepo boundary detection
+    #[serde(default)]
+    pub service_patterns: Vec<ServicePatternConfig>,
 }
 
 impl Default for DataIsolationConfig {
@@ -287,6 +304,9 @@ impl Default for DataIsolationConfig {
             exclude_redis_patterns: Vec::new(),
             admin_roles: Vec::new(),
             credential_keys: default_credential_keys(),
+            restricted_pool_env_vars: Vec::new(),
+            admin_pool_env_vars: Vec::new(),
+            service_patterns: Vec::new(),
         }
     }
 }

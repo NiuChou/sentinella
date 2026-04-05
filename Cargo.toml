@@ -31,6 +31,9 @@ streaming-iterator = "0.1"
 rayon = "1"
 dashmap = "6"
 
+# SQL parsing
+sqlparser = { version = "0.61", features = ["visitor"] }
+
 # Text processing
 regex = "1"
 

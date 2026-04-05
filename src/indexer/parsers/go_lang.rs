@@ -10,9 +10,9 @@ use super::{
 };
 use crate::indexer::store::{normalize_api_path, IndexStore};
 use crate::indexer::types::{
-    ApiEndpoint, DbWriteOp, DbWriteRef, EnvRef, EventConsumer, EventProducer, FileInfo, Framework,
-    HardcodedCredential, HttpMethod, Language, RedisKeyRef, RedisOp, RlsContextRef, SqlQueryOp,
-    SqlQueryRef, StubIndicator, StubType,
+    ApiEndpoint, DbPoolRef, DbWriteOp, DbWriteRef, EnvRef, EventConsumer, EventProducer, FileInfo,
+    Framework, HardcodedCredential, HttpMethod, Language, RedisKeyRef, RedisOp, RlsContextRef,
+    SqlQueryOp, SqlQueryRef, StubIndicator, StubType,
 };
 
 const ROUTES_QUERY: &str = include_str!("../queries/go/routes.scm");
@@ -46,6 +46,7 @@ impl LanguageParser for GoParser {
         scan_rls_context_go(path, source, store);
         scan_hardcoded_creds_go(path, source, store);
         scan_sql_query_refs_go(path, source, store);
+        scan_db_pool_refs_go(path, source, store);
 
         Ok(())
     }
@@ -567,6 +568,79 @@ fn scan_sql_query_refs_go(path: &Path, source: &[u8], store: &IndexStore) {
     }
 }
 
+fn go_db_pool_re() -> &'static [Regex; 4] {
+    static RE: OnceLock<[Regex; 4]> = OnceLock::new();
+    RE.get_or_init(|| {
+        [
+            // pgxpool.New with env var
+            Regex::new(r#"pgxpool\.New\(.*?(?:(DATABASE_URL\w*)|Getenv\("(\w+)"\))"#).unwrap(),
+            // pgxpool.Connect with env var
+            Regex::new(r#"pgxpool\.Connect\(.*?(DATABASE_URL\w*)"#).unwrap(),
+            // sql.Open("postgres", ...) with env var
+            Regex::new(r#"sql\.Open\("postgres",.*?(DATABASE_URL\w*)"#).unwrap(),
+            // Variable name from assignment
+            Regex::new(r#"(?:var\s+)?(\w+)(?:Pool|pool)?\s*(?:,\s*_)?\s*=\s*pgxpool"#).unwrap(),
+        ]
+    })
+}
+
+fn scan_db_pool_refs_go(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let patterns = go_db_pool_re();
+    let env_patterns = &patterns[..3];
+    let var_pattern = &patterns[3];
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        // Check if this line has a pgxpool assignment at all
+        if !line_text.contains("pgxpool") {
+            continue;
+        }
+
+        // Extract pool variable name
+        let pool_name = var_pattern
+            .captures(line_text)
+            .and_then(|cap| cap.get(1))
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        // Extract connection env var from any of the env patterns
+        let mut connection_var = None;
+        for re in env_patterns {
+            if let Some(cap) = re.captures(line_text) {
+                // Try group 1 first (direct DATABASE_URL ref), then group 2 (Getenv arg)
+                if let Some(m) = cap.get(1) {
+                    connection_var = Some(m.as_str().to_string());
+                    break;
+                }
+                if let Some(m) = cap.get(2) {
+                    connection_var = Some(m.as_str().to_string());
+                    break;
+                }
+            }
+        }
+
+        // Only emit a ref if we matched a pool creation pattern
+        if connection_var.is_some() || var_pattern.is_match(line_text) {
+            let entry = DbPoolRef {
+                pool_name,
+                role_hint: None,
+                connection_var,
+                file: path.to_path_buf(),
+                line: line_num + 1,
+            };
+            store
+                .db_pool_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -700,5 +774,33 @@ mod tests {
         let store = parse_fixture("data_isolation.go");
         let refs = store.all_sql_query_refs();
         assert!(!refs.is_empty(), "Should detect SQL query references");
+    }
+
+    #[test]
+    fn detects_go_db_pool_refs() {
+        let store = parse_fixture("dual_pool.go");
+        let all_pools: Vec<DbPoolRef> = store
+            .db_pool_refs
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect();
+        assert!(
+            all_pools.len() >= 2,
+            "Should detect at least 2 DB pool refs, found {}",
+            all_pools.len()
+        );
+
+        let names: Vec<&str> = all_pools.iter().map(|p| p.pool_name.as_str()).collect();
+        assert!(names.contains(&"appPool"), "Should detect appPool, found: {names:?}");
+        assert!(names.contains(&"adminPool"), "Should detect adminPool, found: {names:?}");
+
+        let has_app_url = all_pools
+            .iter()
+            .any(|p| p.connection_var.as_deref() == Some("DATABASE_URL_APP"));
+        let has_admin_url = all_pools
+            .iter()
+            .any(|p| p.connection_var.as_deref() == Some("DATABASE_URL_ADMIN"));
+        assert!(has_app_url, "Should detect DATABASE_URL_APP connection var");
+        assert!(has_admin_url, "Should detect DATABASE_URL_ADMIN connection var");
     }
 }

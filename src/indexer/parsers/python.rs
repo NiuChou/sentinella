@@ -10,9 +10,9 @@ use super::{
 };
 use crate::indexer::store::{normalize_api_path, IndexStore};
 use crate::indexer::types::{
-    ApiEndpoint, DbWriteOp, DbWriteRef, EnvRef, EventConsumer, EventProducer, FileInfo, Framework,
-    HardcodedCredential, HttpMethod, Language, RedisKeyRef, RedisOp, RlsContextRef, SqlQueryOp,
-    SqlQueryRef, StubIndicator, StubType,
+    ApiEndpoint, DbPoolRef, DbWriteOp, DbWriteRef, EnvRef, EventConsumer, EventProducer, FileInfo,
+    Framework, HardcodedCredential, HttpMethod, Language, RedisKeyRef, RedisOp, RlsContextRef,
+    SqlQueryOp, SqlQueryRef, StubIndicator, StubType,
 };
 
 const ROUTES_QUERY: &str = include_str!("../queries/python/routes.scm");
@@ -47,6 +47,7 @@ impl LanguageParser for PythonParser {
         scan_rls_context_py(path, source, store);
         scan_hardcoded_creds_py(path, source, store);
         scan_sql_query_refs_py(path, source, store);
+        scan_db_pool_refs_py(path, source, store);
 
         Ok(())
     }
@@ -506,6 +507,72 @@ fn scan_hardcoded_creds_py(path: &Path, source: &[u8], store: &IndexStore) {
     }
 }
 
+fn py_db_pool_re() -> &'static [Regex; 3] {
+    static RE: OnceLock<[Regex; 3]> = OnceLock::new();
+    RE.get_or_init(|| {
+        [
+            // SQLAlchemy engine with env var
+            Regex::new(r#"create_engine\(.*?(DATABASE_URL\w*)"#).unwrap(),
+            // SQLAlchemy engine with literal connection string
+            Regex::new(r#"create_engine\(.*?(postgres://\S+)"#).unwrap(),
+            // asyncpg pool with env var
+            Regex::new(r#"asyncpg\.create_pool\(.*?(DATABASE_URL\w*)"#).unwrap(),
+        ]
+    })
+}
+
+fn py_pool_name_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r#"(\w+)\s*=\s*create_engine"#).unwrap())
+}
+
+fn scan_db_pool_refs_py(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let pool_patterns = py_db_pool_re();
+    let name_re = py_pool_name_re();
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        let mut connection_var: Option<String> = None;
+
+        for pattern in pool_patterns {
+            if let Some(cap) = pattern.captures(line_text) {
+                if let Some(var_match) = cap.get(1) {
+                    connection_var = Some(var_match.as_str().to_string());
+                    break;
+                }
+            }
+        }
+
+        if connection_var.is_none() {
+            continue;
+        }
+
+        let pool_name = name_re
+            .captures(line_text)
+            .and_then(|cap| cap.get(1))
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_else(|| "unnamed_pool".to_string());
+
+        let entry = DbPoolRef {
+            pool_name,
+            role_hint: None,
+            connection_var,
+            file: path.to_path_buf(),
+            line: line_num + 1,
+        };
+
+        store
+            .db_pool_refs
+            .entry(path.to_path_buf())
+            .or_default()
+            .push(entry);
+    }
+}
+
 fn source_line_at(source: &[u8], line: usize) -> String {
     let text = std::str::from_utf8(source).unwrap_or("");
     text.lines()
@@ -736,5 +803,36 @@ mod tests {
         // The fixture has both kinds
         assert!(!without_tenant.is_empty(), "Should find queries without tenant filter");
         let _ = with_tenant; // available for future assertions
+    }
+
+    #[test]
+    fn detects_python_db_pool_refs() {
+        let store = parse_fixture("dual_pool.py");
+        let all_refs = store.all_db_pool_refs();
+        let refs: Vec<_> = all_refs
+            .iter()
+            .flat_map(|(_, entries)| entries.iter())
+            .collect();
+        assert!(
+            refs.len() >= 2,
+            "Should detect at least 2 DB pool refs, found {}",
+            refs.len()
+        );
+        assert!(
+            refs.iter().any(|r| r.pool_name == "app_engine"),
+            "Should detect app_engine pool"
+        );
+        assert!(
+            refs.iter().any(|r| r.pool_name == "admin_engine"),
+            "Should detect admin_engine pool"
+        );
+        assert!(
+            refs.iter().any(|r| r.connection_var.as_deref() == Some("DATABASE_URL_APP")),
+            "Should extract DATABASE_URL_APP connection var"
+        );
+        assert!(
+            refs.iter().any(|r| r.connection_var.as_deref() == Some("DATABASE_URL_ADMIN")),
+            "Should extract DATABASE_URL_ADMIN connection var"
+        );
     }
 }

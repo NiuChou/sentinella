@@ -158,7 +158,7 @@ Sentinella includes 12 scanners organized into 5 execution layers:
 
 ### S12 Data Isolation Audit — Detection Rules
 
-S12 implements **7 detection rules** across 3 dimensions to verify data-layer isolation:
+S12 implements **10 detection rules** across 3 dimensions to verify data-layer isolation:
 
 #### Dimension A: Schema-Code Alignment
 
@@ -181,6 +181,9 @@ S12 implements **7 detection rules** across 3 dimensions to verify data-layer is
 |------|----|----------|-----------------|
 | Cache-Only Persistence | D6 | Warning | Data written to Redis with TTL but no corresponding DB write in the same context |
 | Default Credential | D7 | Critical | Hardcoded credential values (`password`, `secret`, `key`, `token`) that should use env vars |
+| Dual-Pool Detection | D8 | Warning | Dual-Pool Detection — user-facing code uses admin DB pool instead of restricted RLS-aware pool |
+| Redis Key Enumeration | D9 | Warning | Redis Key Enumeration — session-scoped keys without user_id prefix are enumerable |
+| Cross-Service Data Leak | D10 | Warning | Cross-Service Data Leak — service directly queries tables owned by another service in monorepo |
 
 > For the full implementation plan and scoring model, see `docs/S12-data-isolation-audit-plan.md`.
 
@@ -627,7 +630,7 @@ Sentinella 包含 12 个扫描器，分为 5 个执行层：
 
 ### S12 数据隔离审计 — 检测规则
 
-S12 实现 **7 条检测规则**，覆盖 3 个维度，验证数据层隔离完整性：
+S12 实现 **10 条检测规则**，覆盖 3 个维度，验证数据层隔离完整性：
 
 #### 维度 A：模式-代码对齐
 
@@ -650,6 +653,9 @@ S12 实现 **7 条检测规则**，覆盖 3 个维度，验证数据层隔离完
 |------|----|--------|---------|
 | 仅缓存持久化 | D6 | 警告 | 数据写入 Redis 并设置 TTL，但同一上下文中无对应的数据库写入 |
 | 硬编码凭证 | D7 | 严重 | 硬编码的凭证值（`password`、`secret`、`key`、`token`）应使用环境变量 |
+| 双池检测 | D8 | 警告 | 双池检测 — 用户端代码使用 admin 数据库连接池而非受限 RLS 连接池 |
+| Redis Key 枚举风险 | D9 | 警告 | Redis Key 枚举风险 — 基于 session 的 key 缺少 user_id 前缀 |
+| 跨服务数据泄漏 | D10 | 警告 | 跨服务数据泄漏 — monorepo 中服务直接查询其他服务的表 |
 
 > 完整实施计划和评分模型请参考 `docs/S12-data-isolation-audit-plan.md`。
 

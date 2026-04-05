@@ -90,6 +90,25 @@ env:
     - ".github/workflows/*.yml"
   env_example: ".env.example"
 
+# Data isolation checks
+data_isolation:
+  enabled: true
+  tenant_column: "user_id"
+  exclude_tables:
+    - _prisma_migrations
+    - schema_migrations
+  # D8: Dual-Pool
+  restricted_pool_env_vars:
+    - DATABASE_URL_APP
+  admin_pool_env_vars:
+    - DATABASE_URL_ADMIN
+  # D10: Cross-Service boundaries
+  service_patterns:
+    - name: api
+      directory: packages/api
+    - name: worker
+      directory: packages/worker
+
 # Output
 output:
   format: terminal
