@@ -42,22 +42,12 @@ impl Scanner for SoftDeleteLifecycle {
         let tables_by_name = group_soft_delete_by_table(&soft_delete_cols);
         let queries_by_table = group_queries_by_table(&sql_query_refs);
 
-        let filter_findings = check_deleted_state_filtering(
-            &tables_by_name,
-            &queries_by_table,
-        );
-        let reactivation_findings =
-            check_reactivation_path(&tables_by_name, &queries_by_table);
-        let deadlock_findings = check_deterministic_id_deadlock(
-            ctx,
-            &tables_by_name,
-            &queries_by_table,
-        );
-        let data_leak_findings = check_reactivation_data_leak(
-            ctx,
-            &tables_by_name,
-            &queries_by_table,
-        );
+        let filter_findings = check_deleted_state_filtering(&tables_by_name, &queries_by_table);
+        let reactivation_findings = check_reactivation_path(&tables_by_name, &queries_by_table);
+        let deadlock_findings =
+            check_deterministic_id_deadlock(ctx, &tables_by_name, &queries_by_table);
+        let data_leak_findings =
+            check_reactivation_data_leak(ctx, &tables_by_name, &queries_by_table);
 
         let mut findings = Vec::new();
         findings.extend(filter_findings);
@@ -86,9 +76,7 @@ fn group_soft_delete_by_table(
 ) -> HashMap<String, Vec<&SoftDeleteColumn>> {
     let mut map: HashMap<String, Vec<&SoftDeleteColumn>> = HashMap::new();
     for col in cols {
-        map.entry(col.table_name.clone())
-            .or_default()
-            .push(col);
+        map.entry(col.table_name.clone()).or_default().push(col);
     }
     map
 }
@@ -118,9 +106,7 @@ fn check_deleted_state_filtering(
             continue;
         }
 
-        let has_filtered_select = selects
-            .iter()
-            .any(|q| q.has_tenant_filter);
+        let has_filtered_select = selects.iter().any(|q| q.has_tenant_filter);
 
         if has_filtered_select {
             continue;
@@ -265,18 +251,17 @@ fn find_uuid_files(ctx: &ScanContext, pattern: &Regex) -> HashSet<PathBuf> {
 
         // Also check if the file content can be inferred from imports
         if let Some(imports) = ctx.index.imports.get(&file_info.path) {
-            let has_uuid_import = imports
-                .value()
-                .iter()
-                .any(|imp| {
-                    let module_lower = imp.target_module.to_lowercase();
-                    module_lower.contains("uuid")
-                        && imp.symbols.iter().any(|s| {
-                            let sl = s.to_lowercase();
-                            sl.contains("v5") || sl.contains("v3")
-                                || sl.contains("uuid5") || sl.contains("uuid3")
-                        })
-                });
+            let has_uuid_import = imports.value().iter().any(|imp| {
+                let module_lower = imp.target_module.to_lowercase();
+                module_lower.contains("uuid")
+                    && imp.symbols.iter().any(|s| {
+                        let sl = s.to_lowercase();
+                        sl.contains("v5")
+                            || sl.contains("v3")
+                            || sl.contains("uuid5")
+                            || sl.contains("uuid3")
+                    })
+            });
             if has_uuid_import {
                 result.insert(file_info.path.clone());
             }
@@ -319,9 +304,9 @@ fn build_deadlock_findings(
             None => continue,
         };
 
-        let insert_in_uuid_file = table_queries.iter().find(|r| {
-            r.operation == SqlQueryOp::Insert && uuid_files.contains(&r.file)
-        });
+        let insert_in_uuid_file = table_queries
+            .iter()
+            .find(|r| r.operation == SqlQueryOp::Insert && uuid_files.contains(&r.file));
 
         if let Some(insert_ref) = insert_in_uuid_file {
             findings.push(
@@ -577,12 +562,25 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.soft_delete_columns.entry("users".into()).or_default().push(
-            make_soft_delete_col("users", "deleted_at", SoftDeleteType::Timestamp),
-        );
-        store.sql_query_refs.entry("users".into()).or_default().push(
-            make_query_ref("users", SqlQueryOp::Select, "src/users.ts", false),
-        );
+        store
+            .soft_delete_columns
+            .entry("users".into())
+            .or_default()
+            .push(make_soft_delete_col(
+                "users",
+                "deleted_at",
+                SoftDeleteType::Timestamp,
+            ));
+        store
+            .sql_query_refs
+            .entry("users".into())
+            .or_default()
+            .push(make_query_ref(
+                "users",
+                SqlQueryOp::Select,
+                "src/users.ts",
+                false,
+            ));
 
         let ctx = ScanContext {
             config: &config,
@@ -605,12 +603,25 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.soft_delete_columns.entry("users".into()).or_default().push(
-            make_soft_delete_col("users", "deleted_at", SoftDeleteType::Timestamp),
-        );
-        store.sql_query_refs.entry("users".into()).or_default().push(
-            make_query_ref("users", SqlQueryOp::Select, "src/users.ts", true),
-        );
+        store
+            .soft_delete_columns
+            .entry("users".into())
+            .or_default()
+            .push(make_soft_delete_col(
+                "users",
+                "deleted_at",
+                SoftDeleteType::Timestamp,
+            ));
+        store
+            .sql_query_refs
+            .entry("users".into())
+            .or_default()
+            .push(make_query_ref(
+                "users",
+                SqlQueryOp::Select,
+                "src/users.ts",
+                true,
+            ));
 
         let ctx = ScanContext {
             config: &config,
@@ -618,9 +629,10 @@ mod tests {
             root_dir: Path::new("/tmp"),
         };
         let result = SoftDeleteLifecycle.scan(&ctx);
-        assert!(
-            result.findings.iter().all(|f| !f.message.contains("do not filter deleted")),
-        );
+        assert!(result
+            .findings
+            .iter()
+            .all(|f| !f.message.contains("do not filter deleted")),);
     }
 
     #[test]
@@ -628,13 +640,26 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.soft_delete_columns.entry("orders".into()).or_default().push(
-            make_soft_delete_col("orders", "status", SoftDeleteType::Status),
-        );
+        store
+            .soft_delete_columns
+            .entry("orders".into())
+            .or_default()
+            .push(make_soft_delete_col(
+                "orders",
+                "status",
+                SoftDeleteType::Status,
+            ));
         // Only delete, no update
-        store.sql_query_refs.entry("orders".into()).or_default().push(
-            make_query_ref("orders", SqlQueryOp::Delete, "src/orders.ts", false),
-        );
+        store
+            .sql_query_refs
+            .entry("orders".into())
+            .or_default()
+            .push(make_query_ref(
+                "orders",
+                SqlQueryOp::Delete,
+                "src/orders.ts",
+                false,
+            ));
 
         let ctx = ScanContext {
             config: &config,
@@ -656,15 +681,35 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.soft_delete_columns.entry("orders".into()).or_default().push(
-            make_soft_delete_col("orders", "status", SoftDeleteType::Status),
-        );
-        store.sql_query_refs.entry("orders".into()).or_default().push(
-            make_query_ref("orders", SqlQueryOp::Delete, "src/orders.ts", false),
-        );
-        store.sql_query_refs.entry("orders".into()).or_default().push(
-            make_query_ref("orders", SqlQueryOp::Update, "src/orders.ts", false),
-        );
+        store
+            .soft_delete_columns
+            .entry("orders".into())
+            .or_default()
+            .push(make_soft_delete_col(
+                "orders",
+                "status",
+                SoftDeleteType::Status,
+            ));
+        store
+            .sql_query_refs
+            .entry("orders".into())
+            .or_default()
+            .push(make_query_ref(
+                "orders",
+                SqlQueryOp::Delete,
+                "src/orders.ts",
+                false,
+            ));
+        store
+            .sql_query_refs
+            .entry("orders".into())
+            .or_default()
+            .push(make_query_ref(
+                "orders",
+                SqlQueryOp::Update,
+                "src/orders.ts",
+                false,
+            ));
 
         let ctx = ScanContext {
             config: &config,
@@ -673,9 +718,10 @@ mod tests {
         };
         let result = SoftDeleteLifecycle.scan(&ctx);
 
-        assert!(
-            result.findings.iter().all(|f| !f.message.contains("no UPDATE (reactivation)")),
-        );
+        assert!(result
+            .findings
+            .iter()
+            .all(|f| !f.message.contains("no UPDATE (reactivation)")),);
     }
 
     #[test]
@@ -706,7 +752,11 @@ mod tests {
     fn test_summary_format() {
         let findings = vec![
             Finding::new(SCANNER_ID, Severity::Warning, "do not filter deleted rows"),
-            Finding::new(SCANNER_ID, Severity::Warning, "no UPDATE (reactivation) path"),
+            Finding::new(
+                SCANNER_ID,
+                Severity::Warning,
+                "no UPDATE (reactivation) path",
+            ),
         ];
         let summary = build_summary(&findings, 84);
         assert!(summary.contains("2 issue(s)"));
@@ -726,13 +776,26 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.soft_delete_columns.entry("users".into()).or_default().push(
-            make_soft_delete_col("users", "status", SoftDeleteType::Status),
-        );
+        store
+            .soft_delete_columns
+            .entry("users".into())
+            .or_default()
+            .push(make_soft_delete_col(
+                "users",
+                "status",
+                SoftDeleteType::Status,
+            ));
         // UPDATE in a file whose path contains "reactivate" but no PII field names
-        store.sql_query_refs.entry("users".into()).or_default().push(
-            make_query_ref("users", SqlQueryOp::Update, "src/reactivate_user.ts", false),
-        );
+        store
+            .sql_query_refs
+            .entry("users".into())
+            .or_default()
+            .push(make_query_ref(
+                "users",
+                SqlQueryOp::Update,
+                "src/reactivate_user.ts",
+                false,
+            ));
 
         let ctx = ScanContext {
             config: &config,
@@ -755,18 +818,26 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.soft_delete_columns.entry("users".into()).or_default().push(
-            make_soft_delete_col("users", "status", SoftDeleteType::Status),
-        );
+        store
+            .soft_delete_columns
+            .entry("users".into())
+            .or_default()
+            .push(make_soft_delete_col(
+                "users",
+                "status",
+                SoftDeleteType::Status,
+            ));
         // File path contains both reactivation keyword AND a PII field name
-        store.sql_query_refs.entry("users".into()).or_default().push(
-            make_query_ref(
+        store
+            .sql_query_refs
+            .entry("users".into())
+            .or_default()
+            .push(make_query_ref(
                 "users",
                 SqlQueryOp::Update,
                 "src/reactivate_user_reset_nickname.ts",
                 false,
-            ),
-        );
+            ));
 
         let ctx = ScanContext {
             config: &config,
@@ -775,12 +846,10 @@ mod tests {
         };
         let result = SoftDeleteLifecycle.scan(&ctx);
 
-        assert!(
-            result
-                .findings
-                .iter()
-                .all(|f| !f.message.contains("may leak previous user")),
-        );
+        assert!(result
+            .findings
+            .iter()
+            .all(|f| !f.message.contains("may leak previous user")),);
     }
 
     #[test]
@@ -790,12 +859,25 @@ mod tests {
 
         let uuid_file = PathBuf::from("src/reactivate_user.ts");
 
-        store.soft_delete_columns.entry("users".into()).or_default().push(
-            make_soft_delete_col("users", "status", SoftDeleteType::Status),
-        );
-        store.sql_query_refs.entry("users".into()).or_default().push(
-            make_query_ref("users", SqlQueryOp::Update, "src/reactivate_user.ts", false),
-        );
+        store
+            .soft_delete_columns
+            .entry("users".into())
+            .or_default()
+            .push(make_soft_delete_col(
+                "users",
+                "status",
+                SoftDeleteType::Status,
+            ));
+        store
+            .sql_query_refs
+            .entry("users".into())
+            .or_default()
+            .push(make_query_ref(
+                "users",
+                SqlQueryOp::Update,
+                "src/reactivate_user.ts",
+                false,
+            ));
 
         // Register the file in the index so find_uuid_files can discover it
         store.files.insert(
@@ -836,13 +918,11 @@ mod tests {
 
     #[test]
     fn test_summary_includes_data_leak_count() {
-        let findings = vec![
-            Finding::new(
-                SCANNER_ID,
-                Severity::Warning,
-                "Reactivation of table 'users' may leak previous user's PII — no field reset detected",
-            ),
-        ];
+        let findings = vec![Finding::new(
+            SCANNER_ID,
+            Severity::Warning,
+            "Reactivation of table 'users' may leak previous user's PII — no field reset detected",
+        )];
         let summary = build_summary(&findings, 92);
         assert!(summary.contains("reactivation-data-leak"));
     }

@@ -121,10 +121,7 @@ fn build_issue_body(task: &Task) -> serde_json::Value {
 fn parse_repo(repo: &str) -> Result<(&str, &str)> {
     let parts: Vec<&str> = repo.splitn(2, '/').collect();
     if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
-        anyhow::bail!(
-            "Invalid repo format: '{}'. Expected 'owner/repo'.",
-            repo
-        );
+        anyhow::bail!("Invalid repo format: '{}'. Expected 'owner/repo'.", repo);
     }
     Ok((parts[0], parts[1]))
 }

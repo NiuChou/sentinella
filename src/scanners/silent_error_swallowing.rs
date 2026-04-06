@@ -35,8 +35,14 @@ impl Scanner for SilentErrorSwallowing {
 
         let findings: Vec<Finding> = all_refs.iter().map(|r| to_finding(r)).collect();
 
-        let warning_count = findings.iter().filter(|f| f.severity == Severity::Warning).count();
-        let info_count = findings.iter().filter(|f| f.severity == Severity::Info).count();
+        let warning_count = findings
+            .iter()
+            .filter(|f| f.severity == Severity::Warning)
+            .count();
+        let info_count = findings
+            .iter()
+            .filter(|f| f.severity == Severity::Info)
+            .count();
         let total = findings.len();
 
         let score = compute_score(warning_count, info_count);
@@ -57,7 +63,9 @@ impl Scanner for SilentErrorSwallowing {
 
 fn to_finding(r: &crate::indexer::types::ErrorHandlingRef) -> Finding {
     let (severity, message, suggestion) = match r.error_type {
-        ErrorHandlingType::EmptyCatch | ErrorHandlingType::EmptyExcept | ErrorHandlingType::EmptyErrorBranch => (
+        ErrorHandlingType::EmptyCatch
+        | ErrorHandlingType::EmptyExcept
+        | ErrorHandlingType::EmptyErrorBranch => (
             Severity::Warning,
             format!("Empty catch block silently swallows error — {}", r.context),
             "Log the error or propagate it to callers",
@@ -69,7 +77,10 @@ fn to_finding(r: &crate::indexer::types::ErrorHandlingRef) -> Finding {
         ),
         ErrorHandlingType::UncheckedResponse => (
             Severity::Info,
-            format!("External call response not checked for errors — {}", r.context),
+            format!(
+                "External call response not checked for errors — {}",
+                r.context
+            ),
             "Verify the response status before using the result",
         ),
     };
@@ -148,8 +159,16 @@ layers: {}
         let result = SilentErrorSwallowing.scan(&ctx);
         assert_eq!(result.findings.len(), 3);
 
-        let warnings: Vec<_> = result.findings.iter().filter(|f| f.severity == Severity::Warning).collect();
-        let infos: Vec<_> = result.findings.iter().filter(|f| f.severity == Severity::Info).collect();
+        let warnings: Vec<_> = result
+            .findings
+            .iter()
+            .filter(|f| f.severity == Severity::Warning)
+            .collect();
+        let infos: Vec<_> = result
+            .findings
+            .iter()
+            .filter(|f| f.severity == Severity::Info)
+            .collect();
         assert_eq!(warnings.len(), 2);
         assert_eq!(infos.len(), 1);
     }
@@ -159,7 +178,7 @@ layers: {}
         assert_eq!(compute_score(0, 0), 100);
         assert_eq!(compute_score(2, 1), 93); // 100 - 6 - 1
         assert_eq!(compute_score(10, 5), 65); // 100 - 30 - 5
-        assert_eq!(compute_score(34, 0), 0);  // capped at 0
+        assert_eq!(compute_score(34, 0), 0); // capped at 0
     }
 
     #[test]

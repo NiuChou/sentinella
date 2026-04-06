@@ -308,12 +308,7 @@ layers: {}
         let store = IndexStore::new();
         store.column_lookup_refs.insert(
             "Users.WecomUserID".to_string(),
-            vec![make_lookup(
-                "Users",
-                "WecomUserID",
-                "src/repo/user.ts",
-                42,
-            )],
+            vec![make_lookup("Users", "WecomUserID", "src/repo/user.ts", 42)],
         );
         store.unique_constraint_refs.insert(
             "users.wecomuserid".to_string(),

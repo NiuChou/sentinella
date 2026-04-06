@@ -5,8 +5,7 @@ use anyhow::Result;
 use regex::Regex;
 
 use super::{
-    count_lines, create_parser, find_capture, hash_source, parse_source, run_query,
-    LanguageParser,
+    count_lines, create_parser, find_capture, hash_source, parse_source, run_query, LanguageParser,
 };
 use crate::indexer::store::{normalize_api_path, IndexStore};
 use crate::indexer::types::{
@@ -14,9 +13,9 @@ use crate::indexer::types::{
     DbWriteRef, EnvRef, ErrorHandlingRef, ErrorHandlingType, EventConsumer, EventProducer,
     FileInfo, Framework, FunctionSignature, HardcodedCredential, HttpMethod, Language,
     RateLimitRef, RateLimitType, RedisKeyRef, RedisOp, RlsContextRef, RoleCheckRef, RoleCheckType,
-    SecondaryAuthRef, SecondaryAuthType, SensitiveLogRef, SensitiveLogType,
-    SessionInvalidationRef, SessionInvalidationType, TestBypassRef, TestBypassType,
-    TokenRefreshRef, SqlQueryOp, SqlQueryRef, StubIndicator, StubType,
+    SecondaryAuthRef, SecondaryAuthType, SensitiveLogRef, SensitiveLogType, SessionInvalidationRef,
+    SessionInvalidationType, SqlQueryOp, SqlQueryRef, StubIndicator, StubType, TestBypassRef,
+    TestBypassType, TokenRefreshRef,
 };
 
 const ROUTES_QUERY: &str = include_str!("../queries/python/routes.scm");
@@ -90,9 +89,7 @@ fn parse_routes(
         let method_cap = find_capture(captures, "method");
         let route_cap = find_capture(captures, "route_path");
 
-        if let (Some((_, method_text, _)), Some((_, route_text, line))) =
-            (method_cap, route_cap)
-        {
+        if let (Some((_, method_text, _)), Some((_, route_text, line))) = (method_cap, route_cap) {
             let method = match parse_method(method_text) {
                 Some(m) => m,
                 None => return,
@@ -174,10 +171,22 @@ fn py_stub_patterns() -> &'static [(Regex, StubType)] {
             (Regex::new(r"(?i)\bTODO\b").unwrap(), StubType::Todo),
             (Regex::new(r"(?i)\bFIXME\b").unwrap(), StubType::Fixme),
             (Regex::new(r"(?i)\bHACK\b").unwrap(), StubType::Hack),
-            (Regex::new(r"(?i)\bmock_data\b").unwrap(), StubType::MockData),
-            (Regex::new(r"(?i)\bstub_data\b").unwrap(), StubType::StubData),
-            (Regex::new(r"(?i)\bplaceholder\b").unwrap(), StubType::Placeholder),
-            (Regex::new(r"(?i)\bhardcoded\b").unwrap(), StubType::Hardcoded),
+            (
+                Regex::new(r"(?i)\bmock_data\b").unwrap(),
+                StubType::MockData,
+            ),
+            (
+                Regex::new(r"(?i)\bstub_data\b").unwrap(),
+                StubType::StubData,
+            ),
+            (
+                Regex::new(r"(?i)\bplaceholder\b").unwrap(),
+                StubType::Placeholder,
+            ),
+            (
+                Regex::new(r"(?i)\bhardcoded\b").unwrap(),
+                StubType::Hardcoded,
+            ),
             (Regex::new(r"(?i)\bfake_data\b").unwrap(), StubType::Fake),
             (Regex::new(r"(?i)\bdummy_data\b").unwrap(), StubType::Dummy),
         ]
@@ -305,7 +314,8 @@ fn py_redis_read_re() -> &'static Regex {
 fn py_redis_delete_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r#"(?:redis[_client]*|rdb)\.\s*(delete|hdel)\s*\(\s*(?:f?["']([^"']+)["'])"#).unwrap()
+        Regex::new(r#"(?:redis[_client]*|rdb)\.\s*(delete|hdel)\s*\(\s*(?:f?["']([^"']+)["'])"#)
+            .unwrap()
     })
 }
 
@@ -623,7 +633,8 @@ fn py_sql_query_re() -> &'static Regex {
 fn py_tenant_filter_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r#"(?i)\bWHERE\b[\s\S]*?\b(user_id|owner_id|tenant_id|project_id|org_id)\b"#).unwrap()
+        Regex::new(r#"(?i)\bWHERE\b[\s\S]*?\b(user_id|owner_id|tenant_id|project_id|org_id)\b"#)
+            .unwrap()
     })
 }
 
@@ -660,7 +671,11 @@ fn scan_sql_query_refs_py(path: &Path, source: &[u8], store: &IndexStore) {
                     file: path.to_path_buf(),
                     line: line_num + 1,
                 };
-                store.sql_query_refs.entry(table_name).or_default().push(entry);
+                store
+                    .sql_query_refs
+                    .entry(table_name)
+                    .or_default()
+                    .push(entry);
             }
         }
     }
@@ -676,7 +691,8 @@ fn py_secondary_auth_call_re() -> &'static Regex {
 fn py_secondary_auth_param_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"(?i)\b(otp|totp|verification_code|csrf_token|two_factor_code|mfa_code)\b").unwrap()
+        Regex::new(r"(?i)\b(otp|totp|verification_code|csrf_token|two_factor_code|mfa_code)\b")
+            .unwrap()
     })
 }
 
@@ -755,16 +771,12 @@ fn scan_error_handling_py(path: &Path, source: &[u8], store: &IndexStore) {
 
 fn py_role_single_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r#"(?i)\brole\s*==\s*["']([^"']+)["']"#).unwrap()
-    })
+    RE.get_or_init(|| Regex::new(r#"(?i)\brole\s*==\s*["']([^"']+)["']"#).unwrap())
 }
 
 fn py_role_in_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r#"(?i)\brole\s+in\s+\["#).unwrap()
-    })
+    RE.get_or_init(|| Regex::new(r#"(?i)\brole\s+in\s+\["#).unwrap())
 }
 
 fn is_middleware_file_py(path: &Path) -> bool {
@@ -834,43 +846,49 @@ fn scan_function_signatures_py(
     language: &tree_sitter::Language,
     store: &IndexStore,
 ) {
-    run_query(PY_FUNCTIONS_QUERY, language, source, tree, |_m, captures| {
-        let name_cap = find_capture(captures, "func_name");
-        let params_cap = find_capture(captures, "params");
-        let body_cap = find_capture(captures, "body");
+    run_query(
+        PY_FUNCTIONS_QUERY,
+        language,
+        source,
+        tree,
+        |_m, captures| {
+            let name_cap = find_capture(captures, "func_name");
+            let params_cap = find_capture(captures, "params");
+            let body_cap = find_capture(captures, "body");
 
-        if let (Some((_, name, line)), Some((_, params_text, _)), Some((_, body_text, _))) =
-            (name_cap, params_cap, body_cap)
-        {
-            // Skip private/dunder methods
-            if name.starts_with('_') && !name.starts_with("__") {
-                return;
+            if let (Some((_, name, line)), Some((_, params_text, _)), Some((_, body_text, _))) =
+                (name_cap, params_cap, body_cap)
+            {
+                // Skip private/dunder methods
+                if name.starts_with('_') && !name.starts_with("__") {
+                    return;
+                }
+
+                let params: Vec<String> = params_text
+                    .trim_matches(|c| c == '(' || c == ')')
+                    .split(',')
+                    .map(|p| p.trim().to_string())
+                    .filter(|p| !p.is_empty() && p != "self" && p != "cls")
+                    .collect();
+
+                let body_hash = hash_source(body_text.as_bytes());
+
+                let entry = FunctionSignature {
+                    file: path.to_path_buf(),
+                    line: *line,
+                    name: name.clone(),
+                    params,
+                    body_hash,
+                    service_name: None,
+                };
+                store
+                    .function_signatures
+                    .entry(path.to_path_buf())
+                    .or_default()
+                    .push(entry);
             }
-
-            let params: Vec<String> = params_text
-                .trim_matches(|c| c == '(' || c == ')')
-                .split(',')
-                .map(|p| p.trim().to_string())
-                .filter(|p| !p.is_empty() && p != "self" && p != "cls")
-                .collect();
-
-            let body_hash = hash_source(body_text.as_bytes());
-
-            let entry = FunctionSignature {
-                file: path.to_path_buf(),
-                line: *line,
-                name: name.clone(),
-                params,
-                body_hash,
-                service_name: None,
-            };
-            store
-                .function_signatures
-                .entry(path.to_path_buf())
-                .or_default()
-                .push(entry);
-        }
-    });
+        },
+    );
 }
 
 fn py_jwt_blacklist_re() -> &'static Regex {
@@ -952,7 +970,10 @@ fn classify_sensitive_log_py(text: &str) -> Option<SensitiveLogType> {
     let lower = text.to_lowercase();
     if lower.contains("password") || lower.contains("passwd") {
         Some(SensitiveLogType::Password)
-    } else if lower.contains("access_token") || lower.contains("refresh_token") || lower.contains("token") {
+    } else if lower.contains("access_token")
+        || lower.contains("refresh_token")
+        || lower.contains("token")
+    {
         Some(SensitiveLogType::Token)
     } else if lower.contains("secret") {
         Some(SensitiveLogType::Secret)
@@ -1088,14 +1109,18 @@ fn scan_audit_log_py(path: &Path, source: &[u8], store: &IndexStore) {
 fn test_bypass_phone_py_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r#"(?i)(if|elif|case)\s*.*?(phone|mobile|tel)\s*==\s*['""]\+?(\d{7,15})['""]\s*"#).unwrap()
+        Regex::new(
+            r#"(?i)(if|elif|case)\s*.*?(phone|mobile|tel)\s*==\s*['""]\+?(\d{7,15})['""]\s*"#,
+        )
+        .unwrap()
     })
 }
 
 fn test_bypass_email_py_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r#"(?i)(email|mail)\s*==\s*['"](test@|admin@|demo@|debug@)[^'"]*['"]\s*"#).unwrap()
+        Regex::new(r#"(?i)(email|mail)\s*==\s*['"](test@|admin@|demo@|debug@)[^'"]*['"]\s*"#)
+            .unwrap()
     })
 }
 
@@ -1139,15 +1164,34 @@ fn scan_test_bypass_py(path: &Path, source: &[u8], store: &IndexStore) {
         }
 
         let bypass = if let Some(cap) = phone_re.captures(line_text) {
-            Some((TestBypassType::HardcodedPhone, cap.get(3).map(|m| m.as_str().to_string()).unwrap_or_default()))
+            Some((
+                TestBypassType::HardcodedPhone,
+                cap.get(3)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default(),
+            ))
         } else if let Some(cap) = email_re.captures(line_text) {
-            Some((TestBypassType::HardcodedEmail, cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default()))
+            Some((
+                TestBypassType::HardcodedEmail,
+                cap.get(2)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default(),
+            ))
         } else if pwd_re.is_match(line_text) {
-            Some((TestBypassType::MasterPassword, trimmed.chars().take(80).collect()))
+            Some((
+                TestBypassType::MasterPassword,
+                trimmed.chars().take(80).collect(),
+            ))
         } else if debug_re.is_match(line_text) {
-            Some((TestBypassType::DebugFlag, trimmed.chars().take(80).collect()))
+            Some((
+                TestBypassType::DebugFlag,
+                trimmed.chars().take(80).collect(),
+            ))
         } else if list_re.is_match(line_text) {
-            Some((TestBypassType::TestAccountList, trimmed.chars().take(80).collect()))
+            Some((
+                TestBypassType::TestAccountList,
+                trimmed.chars().take(80).collect(),
+            ))
         } else {
             None
         };
@@ -1182,7 +1226,8 @@ fn token_refresh_py_re() -> &'static Regex {
 fn token_revocation_py_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r#"(?i)(blacklist|revoke|invalidate|delete.*token|remove.*token|redis.*delete)"#).unwrap()
+        Regex::new(r#"(?i)(blacklist|revoke|invalidate|delete.*token|remove.*token|redis.*delete)"#)
+            .unwrap()
     })
 }
 
@@ -1212,7 +1257,11 @@ fn scan_token_refresh_py(path: &Path, source: &[u8], store: &IndexStore) {
     for (line_num, line_text) in source_str.lines().enumerate() {
         if refresh_re.is_match(line_text) {
             let has_nearby_revocation = revocation_lines.iter().any(|&rl| {
-                let diff = if rl > line_num { rl - line_num } else { line_num - rl };
+                let diff = if rl > line_num {
+                    rl - line_num
+                } else {
+                    line_num - rl
+                };
                 diff <= PROXIMITY
             });
 
@@ -1314,9 +1363,7 @@ mod tests {
         let source = std::fs::read(&path)
             .unwrap_or_else(|e| panic!("Failed to read {}: {e}", path.display()));
         let store = IndexStore::new();
-        PythonParser
-            .parse_file(&path, &source, &store)
-            .unwrap();
+        PythonParser.parse_file(&path, &source, &store).unwrap();
         store
     }
 
@@ -1328,7 +1375,11 @@ mod tests {
             .iter()
             .filter(|e| e.method == HttpMethod::Get)
             .collect();
-        assert!(gets.len() >= 2, "Expected >= 2 GET routes, got {}", gets.len());
+        assert!(
+            gets.len() >= 2,
+            "Expected >= 2 GET routes, got {}",
+            gets.len()
+        );
     }
 
     #[test]
@@ -1367,7 +1418,10 @@ mod tests {
     #[test]
     fn parses_env_refs_direct_access() {
         let store = parse_fixture("env_refs.py");
-        assert!(store.env_refs.contains_key("DATABASE_URL"), "Missing DATABASE_URL");
+        assert!(
+            store.env_refs.contains_key("DATABASE_URL"),
+            "Missing DATABASE_URL"
+        );
     }
 
     #[test]
@@ -1447,7 +1501,10 @@ mod tests {
         let with_tenant: Vec<_> = refs.iter().filter(|r| r.has_tenant_filter).collect();
         let without_tenant: Vec<_> = refs.iter().filter(|r| !r.has_tenant_filter).collect();
         // The fixture has both kinds
-        assert!(!without_tenant.is_empty(), "Should find queries without tenant filter");
+        assert!(
+            !without_tenant.is_empty(),
+            "Should find queries without tenant filter"
+        );
         let _ = with_tenant; // available for future assertions
     }
 
@@ -1473,11 +1530,13 @@ mod tests {
             "Should detect admin_engine pool"
         );
         assert!(
-            refs.iter().any(|r| r.connection_var.as_deref() == Some("DATABASE_URL_APP")),
+            refs.iter()
+                .any(|r| r.connection_var.as_deref() == Some("DATABASE_URL_APP")),
             "Should extract DATABASE_URL_APP connection var"
         );
         assert!(
-            refs.iter().any(|r| r.connection_var.as_deref() == Some("DATABASE_URL_ADMIN")),
+            refs.iter()
+                .any(|r| r.connection_var.as_deref() == Some("DATABASE_URL_ADMIN")),
             "Should extract DATABASE_URL_ADMIN connection var"
         );
     }

@@ -20,11 +20,7 @@ use sentinella::scanners::{create_scanners, run_scanners};
 // ---------------------------------------------------------------------------
 
 #[derive(Parser)]
-#[command(
-    name = "sentinella",
-    version,
-    about = "System completeness audit tool"
-)]
+#[command(name = "sentinella", version, about = "System completeness audit tool")]
 struct Cli {
     /// Path to a config file (overrides auto-discovery)
     #[arg(long, global = true)]
@@ -159,11 +155,7 @@ fn handle_init(project_type: CliProjectType) -> Result<()> {
         .into_diagnostic()
         .wrap_err("failed to write config file")?;
 
-    eprintln!(
-        "{} wrote {}",
-        "done:".green().bold(),
-        dest.display().cyan()
-    );
+    eprintln!("{} wrote {}", "done:".green().bold(), dest.display().cyan());
     Ok(())
 }
 
@@ -329,11 +321,7 @@ fn exit_on_coverage_failure(
     }
 }
 
-fn dispatch_tasks(
-    tasks: &[task_decomposer::Task],
-    target: &CliDispatchTarget,
-    dry_run: bool,
-) {
+fn dispatch_tasks(tasks: &[task_decomposer::Task], target: &CliDispatchTarget, dry_run: bool) {
     match target {
         CliDispatchTarget::Stdout => {
             sentinella::dispatchers::stdout::dispatch(tasks, dry_run);

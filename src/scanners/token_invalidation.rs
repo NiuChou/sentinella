@@ -22,7 +22,13 @@ struct StateChangeTarget {
 
 /// Keywords in API paths that indicate user state change endpoints.
 const STATE_CHANGE_PATH_KEYWORDS: &[&str] = &[
-    "delete", "deactivate", "suspend", "ban", "disable", "revoke", "block",
+    "delete",
+    "deactivate",
+    "suspend",
+    "ban",
+    "disable",
+    "revoke",
+    "block",
 ];
 
 /// Collect all files that have session invalidation refs.
@@ -92,8 +98,7 @@ fn collect_db_write_state_changes(
         .filter(|r| {
             !seen.contains(&r.file)
                 && (r.operation == DbWriteOp::Delete
-                    || (r.operation == DbWriteOp::Update
-                        && sd_tables.contains(&r.table_name)))
+                    || (r.operation == DbWriteOp::Update && sd_tables.contains(&r.table_name)))
         })
         .map(|r| {
             let has_api = file_has_state_change_endpoint(ctx, &r.file);
@@ -143,17 +148,14 @@ impl Scanner for TokenInvalidation {
 
         // Phase 1: SQL-level state changes
         let sql_targets = collect_sql_state_changes(ctx);
-        let sql_files: HashSet<PathBuf> =
-            sql_targets.iter().map(|t| t.file.clone()).collect();
+        let sql_files: HashSet<PathBuf> = sql_targets.iter().map(|t| t.file.clone()).collect();
 
         // Phase 2: ORM-level state changes (avoid duplicates)
         let db_targets = collect_db_write_state_changes(ctx, &sql_files);
 
         // Merge and deduplicate
-        let all_targets: Vec<StateChangeTarget> = sql_targets
-            .into_iter()
-            .chain(db_targets)
-            .collect();
+        let all_targets: Vec<StateChangeTarget> =
+            sql_targets.into_iter().chain(db_targets).collect();
         let targets = deduplicate_by_file(all_targets);
 
         let total = targets.len();
@@ -241,8 +243,8 @@ mod tests {
     use crate::config::Config;
     use crate::indexer::store::IndexStore;
     use crate::indexer::types::{
-        ApiEndpoint, DbWriteRef, Framework, SessionInvalidationRef,
-        SessionInvalidationType, SoftDeleteColumn, SoftDeleteType, SqlQueryRef,
+        ApiEndpoint, DbWriteRef, Framework, SessionInvalidationRef, SessionInvalidationType,
+        SoftDeleteColumn, SoftDeleteType, SqlQueryRef,
     };
     use std::path::Path;
 
@@ -449,15 +451,17 @@ mod tests {
             }],
         );
 
-        store.sql_query_refs.entry("accounts".into()).or_default().push(
-            SqlQueryRef {
+        store
+            .sql_query_refs
+            .entry("accounts".into())
+            .or_default()
+            .push(SqlQueryRef {
                 table_name: "accounts".to_string(),
                 operation: SqlQueryOp::Delete,
                 has_tenant_filter: false,
                 file: unprotected_file.clone(),
                 line: 30,
-            },
-        );
+            });
 
         store.session_invalidation_refs.insert(
             protected_file.clone(),

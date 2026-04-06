@@ -87,10 +87,7 @@ fn check_otp_files_without_redis_delete(ctx: &ScanContext, findings: &mut Vec<Fi
         .map(|r| r.file.clone())
         .collect();
 
-    let already_warned: HashSet<PathBuf> = findings
-        .iter()
-        .filter_map(|f| f.file.clone())
-        .collect();
+    let already_warned: HashSet<PathBuf> = findings.iter().filter_map(|f| f.file.clone()).collect();
 
     let otp_verify_re = build_otp_verify_regex();
     let otp_consume_re = build_otp_consume_regex();
@@ -107,7 +104,9 @@ fn check_otp_files_without_redis_delete(ctx: &ScanContext, findings: &mut Vec<Fi
             Err(_) => continue,
         };
 
-        if let Some(line) = find_otp_verify_without_consume(&content, &otp_verify_re, &otp_consume_re) {
+        if let Some(line) =
+            find_otp_verify_without_consume(&content, &otp_verify_re, &otp_consume_re)
+        {
             findings.push(make_info(file_path, line));
         }
     }
@@ -245,7 +244,12 @@ layers: {}
         let store = IndexStore::new();
         store.redis_key_refs.insert(
             "otp:user:*".to_string(),
-            vec![make_redis_ref("src/auth/verify_otp.ts", 10, RedisOp::Read, "otp:user:*")],
+            vec![make_redis_ref(
+                "src/auth/verify_otp.ts",
+                10,
+                RedisOp::Read,
+                "otp:user:*",
+            )],
         );
 
         let config = minimal_config();
@@ -256,7 +260,11 @@ layers: {}
         };
 
         let result = OtpReplayProtection.scan(&ctx);
-        let warnings: Vec<_> = result.findings.iter().filter(|f| f.severity == Severity::Warning).collect();
+        let warnings: Vec<_> = result
+            .findings
+            .iter()
+            .filter(|f| f.severity == Severity::Warning)
+            .collect();
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].message.contains("replayable"));
     }
@@ -280,7 +288,11 @@ layers: {}
         };
 
         let result = OtpReplayProtection.scan(&ctx);
-        let warnings: Vec<_> = result.findings.iter().filter(|f| f.severity == Severity::Warning).collect();
+        let warnings: Vec<_> = result
+            .findings
+            .iter()
+            .filter(|f| f.severity == Severity::Warning)
+            .collect();
         assert!(warnings.is_empty());
     }
 
@@ -289,7 +301,12 @@ layers: {}
         let store = IndexStore::new();
         store.redis_key_refs.insert(
             "session:user:*".to_string(),
-            vec![make_redis_ref("src/auth/session.ts", 5, RedisOp::Read, "session:user:*")],
+            vec![make_redis_ref(
+                "src/auth/session.ts",
+                5,
+                RedisOp::Read,
+                "session:user:*",
+            )],
         );
 
         let config = minimal_config();
@@ -301,7 +318,11 @@ layers: {}
 
         let result = OtpReplayProtection.scan(&ctx);
         // No OTP keys, so no warnings from redis check
-        let warnings: Vec<_> = result.findings.iter().filter(|f| f.severity == Severity::Warning).collect();
+        let warnings: Vec<_> = result
+            .findings
+            .iter()
+            .filter(|f| f.severity == Severity::Warning)
+            .collect();
         assert!(warnings.is_empty());
     }
 
@@ -361,7 +382,12 @@ layers: {}
         // File 1: OTP read without delete (warning)
         store.redis_key_refs.insert(
             "otp:verify:*".to_string(),
-            vec![make_redis_ref("src/auth/verify.ts", 10, RedisOp::Read, "otp:verify:*")],
+            vec![make_redis_ref(
+                "src/auth/verify.ts",
+                10,
+                RedisOp::Read,
+                "otp:verify:*",
+            )],
         );
 
         // File 2: 2FA read with delete (safe)
@@ -369,7 +395,12 @@ layers: {}
             "2fa:session:*".to_string(),
             vec![
                 make_redis_ref("src/auth/two_factor.ts", 20, RedisOp::Read, "2fa:session:*"),
-                make_redis_ref("src/auth/two_factor.ts", 25, RedisOp::Delete, "2fa:session:*"),
+                make_redis_ref(
+                    "src/auth/two_factor.ts",
+                    25,
+                    RedisOp::Delete,
+                    "2fa:session:*",
+                ),
             ],
         );
 
@@ -381,8 +412,15 @@ layers: {}
         };
 
         let result = OtpReplayProtection.scan(&ctx);
-        let warnings: Vec<_> = result.findings.iter().filter(|f| f.severity == Severity::Warning).collect();
+        let warnings: Vec<_> = result
+            .findings
+            .iter()
+            .filter(|f| f.severity == Severity::Warning)
+            .collect();
         assert_eq!(warnings.len(), 1);
-        assert_eq!(warnings[0].file.as_ref().unwrap(), &PathBuf::from("src/auth/verify.ts"));
+        assert_eq!(
+            warnings[0].file.as_ref().unwrap(),
+            &PathBuf::from("src/auth/verify.ts")
+        );
     }
 }

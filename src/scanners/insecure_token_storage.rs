@@ -10,8 +10,16 @@ const SCANNER_DESC: &str =
 
 /// Keywords in storage key names that indicate auth/token data.
 const TOKEN_KEYWORDS: &[&str] = &[
-    "token", "jwt", "access_token", "refresh_token", "auth", "bearer", "session",
-    "id_token", "api_key", "apikey",
+    "token",
+    "jwt",
+    "access_token",
+    "refresh_token",
+    "auth",
+    "bearer",
+    "session",
+    "id_token",
+    "api_key",
+    "apikey",
 ];
 
 /// Check whether a storage key name refers to an authentication token.
@@ -229,7 +237,7 @@ layers: {}
         assert_eq!(compute_score(1, 0), 85); // 100 - 15
         assert_eq!(compute_score(0, 1), 95); // 100 - 5
         assert_eq!(compute_score(2, 3), 55); // 100 - 30 - 15
-        assert_eq!(compute_score(7, 0), 0);  // 100 - 105 => capped at 0
+        assert_eq!(compute_score(7, 0), 0); // 100 - 105 => capped at 0
         assert_eq!(compute_score(3, 5), 30); // 100 - 45 - 25
     }
 

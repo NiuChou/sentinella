@@ -1,7 +1,7 @@
-pub mod types;
-pub mod store;
 pub mod parsers;
 pub mod queries;
+pub mod store;
+pub mod types;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -10,8 +10,8 @@ use anyhow::Result;
 use ignore::WalkBuilder;
 use rayon::prelude::*;
 
-use crate::config::schema::Config;
 use self::store::IndexStore;
+use crate::config::schema::Config;
 
 /// Maximum file size to index (1 MB). Files exceeding this limit are
 /// assumed to be generated artifacts and are silently skipped.
@@ -120,7 +120,10 @@ fn parse_test_files(entries: &[ignore::DirEntry], store: &IndexStore) {
         }
 
         if let Err(err) = parsers::test_file::parse_test_file(path, &source, store) {
-            eprintln!("Warning: failed to parse test file {}: {err}", path.display());
+            eprintln!(
+                "Warning: failed to parse test file {}: {err}",
+                path.display()
+            );
         }
     });
 }

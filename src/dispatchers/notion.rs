@@ -31,7 +31,10 @@ pub fn dispatch(tasks: &[Task], database_id: &str, dry_run: bool) -> Result<()> 
     )?;
 
     let created = create_task_pages(tasks, database_id, &api_key)?;
-    println!("  Created {} Notion pages in database {}", created, database_id);
+    println!(
+        "  Created {} Notion pages in database {}",
+        created, database_id
+    );
     Ok(())
 }
 

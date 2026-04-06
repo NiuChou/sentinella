@@ -178,10 +178,7 @@ impl Scanner for IntegrationTestCoverage {
                         Finding::new(
                             SCANNER_ID,
                             Severity::Warning,
-                            format!(
-                                "Table '{}' integration test has no assertions",
-                                table_name
-                            ),
+                            format!("Table '{}' integration test has no assertions", table_name),
                         )
                         .with_suggestion(format!(
                             "Add assertions to verify the behavior of operations on '{}'.",

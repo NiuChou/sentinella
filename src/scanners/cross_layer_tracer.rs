@@ -155,12 +155,7 @@ impl ModuleInfo {
 
 fn resolve_modules(ctx: &ScanContext) -> Vec<ModuleInfo> {
     if !ctx.config.modules.is_empty() {
-        return ctx
-            .config
-            .modules
-            .iter()
-            .map(module_from_config)
-            .collect();
+        return ctx.config.modules.iter().map(module_from_config).collect();
     }
 
     auto_discover_modules(ctx)
@@ -202,9 +197,7 @@ fn auto_discover_modules(ctx: &ScanContext) -> Vec<ModuleInfo> {
                 .get("backend")
                 .map(|p| p.to_string_lossy().to_string()),
             bff: layers.get("bff").map(|p| p.to_string_lossy().to_string()),
-            hooks: layers
-                .get("hooks")
-                .map(|p| p.to_string_lossy().to_string()),
+            hooks: layers.get("hooks").map(|p| p.to_string_lossy().to_string()),
             page: layers.get("page").map(|p| p.to_string_lossy().to_string()),
         })
         .collect()
@@ -274,10 +267,7 @@ fn build_layer_matrix(
         .max(6); // minimum "Module" header width
 
     // Build dynamic header
-    let layer_headers: Vec<String> = required_layers
-        .iter()
-        .map(|l| format!(" {} ", l))
-        .collect();
+    let layer_headers: Vec<String> = required_layers.iter().map(|l| format!(" {} ", l)).collect();
     let header = format!(
         "{:<width$} |{}",
         "Module",

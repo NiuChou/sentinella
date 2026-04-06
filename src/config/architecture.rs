@@ -34,13 +34,7 @@ const SERVICE_MARKERS: &[(&str, Option<&str>)] = &[
     ("build.gradle", Some("java")),
 ];
 
-const IGNORED_DIRS: &[&str] = &[
-    "node_modules",
-    "target",
-    "dist",
-    "build",
-    "vendor",
-];
+const IGNORED_DIRS: &[&str] = &["node_modules", "target", "dist", "build", "vendor"];
 
 pub fn detect_architecture(root: &Path, linked_repos_config: &[LinkedRepo]) -> Architecture {
     if !linked_repos_config.is_empty() {
@@ -197,13 +191,11 @@ mod tests {
         assert_eq!(format!("{single}"), "SingleRepo");
 
         let mono = Architecture::Monorepo {
-            services: vec![
-                DetectedService {
-                    name: "api".into(),
-                    root_dir: PathBuf::from("/api"),
-                    language: Some("rust".into()),
-                },
-            ],
+            services: vec![DetectedService {
+                name: "api".into(),
+                root_dir: PathBuf::from("/api"),
+                language: Some("rust".into()),
+            }],
         };
         assert_eq!(format!("{mono}"), "Monorepo (api)");
     }

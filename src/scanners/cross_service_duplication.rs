@@ -6,8 +6,7 @@ use super::types::{Finding, ScanContext, ScanResult, Scanner, Severity};
 
 const SCANNER_ID: &str = "S15";
 const SCANNER_NAME: &str = "CrossServiceDuplication";
-const SCANNER_DESC: &str =
-    "Detects duplicated business logic across services in monorepo/polyrepo";
+const SCANNER_DESC: &str = "Detects duplicated business logic across services in monorepo/polyrepo";
 
 /// Known shared/common directory prefixes that indicate a shared package exists.
 const SHARED_DIR_PREFIXES: &[&str] = &["shared/", "common/", "pkg/", "lib/"];
@@ -56,9 +55,7 @@ impl Scanner for CrossServiceDuplication {
 
 /// Group function signatures by their resolved service name.
 /// Functions with no determinable service are excluded.
-fn group_by_service(
-    signatures: Vec<FunctionSignature>,
-) -> HashMap<String, Vec<FunctionSignature>> {
+fn group_by_service(signatures: Vec<FunctionSignature>) -> HashMap<String, Vec<FunctionSignature>> {
     let mut by_service: HashMap<String, Vec<FunctionSignature>> = HashMap::new();
 
     for sig in signatures {
@@ -256,10 +253,7 @@ fn index_by_function_name<'a>(
 
 /// Extract unique service names from occurrences, sorted.
 fn unique_service_names(occurrences: &[(&str, &FunctionSignature)]) -> Vec<String> {
-    let mut services: Vec<String> = occurrences
-        .iter()
-        .map(|(svc, _)| svc.to_string())
-        .collect();
+    let mut services: Vec<String> = occurrences.iter().map(|(svc, _)| svc.to_string()).collect();
     services.sort();
     services.dedup();
     services

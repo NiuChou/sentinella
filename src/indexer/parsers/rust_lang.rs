@@ -7,7 +7,7 @@ use regex::Regex;
 use super::{count_lines, hash_source, LanguageParser};
 use crate::indexer::store::{normalize_api_path, IndexStore};
 use crate::indexer::types::{
-    ApiEndpoint, DbWriteOp, DbWriteRef, EnvRef, Framework, FileInfo, HardcodedCredential,
+    ApiEndpoint, DbWriteOp, DbWriteRef, EnvRef, FileInfo, Framework, HardcodedCredential,
     HttpMethod, ImportEdge, Language,
 };
 
@@ -66,10 +66,8 @@ fn axum_route_re() -> &'static Regex {
 fn actix_resource_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(
-            r#"web::resource\(\s*"([^"]+)"\s*\).*?web::(get|post|put|patch|delete)\s*\("#,
-        )
-        .unwrap()
+        Regex::new(r#"web::resource\(\s*"([^"]+)"\s*\).*?web::(get|post|put|patch|delete)\s*\("#)
+            .unwrap()
     })
 }
 
@@ -190,9 +188,7 @@ fn scan_api_routes(path: &Path, source: &str, store: &IndexStore) {
 /// std::env::var("VAR") or env::var("VAR")
 fn env_var_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r#"(?:std::)?env::var(?:_os)?\(\s*"([^"]+)"\s*\)"#).unwrap()
-    })
+    RE.get_or_init(|| Regex::new(r#"(?:std::)?env::var(?:_os)?\(\s*"([^"]+)"\s*\)"#).unwrap())
 }
 
 /// env!("VAR") compile-time macro
@@ -451,10 +447,8 @@ fn scan_db_writes(path: &Path, source: &str, store: &IndexStore) {
 fn hardcoded_cred_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(
-            r#"(?i)(password|secret|api_key|access_key|token)\s*[:=]\s*["']([^"']{4,})["']"#,
-        )
-        .unwrap()
+        Regex::new(r#"(?i)(password|secret|api_key|access_key|token)\s*[:=]\s*["']([^"']{4,})["']"#)
+            .unwrap()
     })
 }
 
@@ -528,10 +522,7 @@ mod tests {
             .iter()
             .filter(|e| e.method == HttpMethod::Get && e.path.contains("/users"))
             .collect();
-        assert!(
-            !actix_gets.is_empty(),
-            "Should find Actix GET /users route"
-        );
+        assert!(!actix_gets.is_empty(), "Should find Actix GET /users route");
 
         let posts: Vec<_> = endpoints
             .iter()
@@ -572,12 +563,11 @@ mod tests {
     fn detects_rust_hardcoded_creds() {
         let store = parse_fixture("routes.rs");
         let creds = store.all_hardcoded_creds();
+        assert!(!creds.is_empty(), "Should detect hardcoded credentials");
         assert!(
-            !creds.is_empty(),
-            "Should detect hardcoded credentials"
-        );
-        assert!(
-            creds.iter().any(|c| c.key_name.to_lowercase() == "password"),
+            creds
+                .iter()
+                .any(|c| c.key_name.to_lowercase() == "password"),
             "Should find hardcoded password"
         );
     }

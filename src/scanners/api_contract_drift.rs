@@ -181,8 +181,7 @@ fn find_matching_endpoint(
         if has_exact {
             return EndpointMatch::Exact;
         }
-        let available_methods: Vec<HttpMethod> =
-            path_matches.iter().map(|ep| ep.method).collect();
+        let available_methods: Vec<HttpMethod> = path_matches.iter().map(|ep| ep.method).collect();
         return EndpointMatch::PathMatchMethodMismatch(available_methods);
     }
 

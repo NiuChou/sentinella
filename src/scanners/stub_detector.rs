@@ -71,9 +71,7 @@ impl Scanner for StubDetector {
                         ),
                     )
                     .with_file(file.clone())
-                    .with_suggestion(
-                        "Verify this file connects to a real data source".to_string(),
-                    ),
+                    .with_suggestion("Verify this file connects to a real data source".to_string()),
                 );
             }
         }
@@ -149,7 +147,8 @@ fn path_matches_glob(path: &str, pattern: &str) -> bool {
             let prefix = parts[0].trim_end_matches('/');
             let suffix = parts[1].trim_start_matches('/');
             let prefix_ok = prefix.is_empty() || path.contains(prefix);
-            let suffix_ok = suffix.is_empty() || path.ends_with(suffix)
+            let suffix_ok = suffix.is_empty()
+                || path.ends_with(suffix)
                 || suffix.starts_with('*') && has_matching_extension(path, suffix);
             return prefix_ok && suffix_ok;
         }
@@ -262,10 +261,7 @@ layers:
         };
 
         let result = StubDetector.scan(&ctx);
-        assert!(
-            result.score < 100,
-            "Score should be < 100 when stubs exist"
-        );
+        assert!(result.score < 100, "Score should be < 100 when stubs exist");
     }
 
     #[test]

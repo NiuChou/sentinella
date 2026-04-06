@@ -154,11 +154,7 @@ output:
     fn load_config_auto_uses_explicit_path() {
         let dir = tempfile::tempdir().unwrap();
         let explicit = dir.path().join("custom.yaml");
-        std::fs::write(
-            &explicit,
-            "version: '1.0'\nproject: custom\n",
-        )
-        .unwrap();
+        std::fs::write(&explicit, "version: '1.0'\nproject: custom\n").unwrap();
 
         let config = load_config_auto(Some(explicit.as_path()), dir.path()).unwrap();
         assert_eq!(config.project, "custom");

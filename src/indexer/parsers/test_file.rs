@@ -9,10 +9,7 @@ use crate::indexer::types::TestFileInfo;
 /// Detect whether a file path corresponds to a test file based on naming
 /// conventions and directory structure.
 pub fn is_test_file(path: &Path) -> bool {
-    let file_name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("");
+    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
     // TypeScript / JavaScript test patterns
     if file_name.ends_with(".test.ts")
@@ -28,7 +25,9 @@ pub fn is_test_file(path: &Path) -> bool {
     }
 
     // Python test patterns
-    if file_name.ends_with(".py") && (file_name.starts_with("test_") || file_name.ends_with("_test.py")) {
+    if file_name.ends_with(".py")
+        && (file_name.starts_with("test_") || file_name.ends_with("_test.py"))
+    {
         return true;
     }
 
@@ -111,8 +110,10 @@ fn detect_write_patterns(content: &str) -> bool {
 
 /// Returns true if the content contains read operation patterns.
 fn detect_read_patterns(content: &str) -> bool {
-    let re = Regex::new(r#"(?i)\b(SELECT\s|\.get\(|\.find\(|\.query\(|\.findOne\(|\.findMany\(|GET\s+["'/])"#)
-        .expect("valid regex");
+    let re = Regex::new(
+        r#"(?i)\b(SELECT\s|\.get\(|\.find\(|\.query\(|\.findOne\(|\.findMany\(|GET\s+["'/])"#,
+    )
+    .expect("valid regex");
     re.is_match(content)
 }
 
@@ -127,16 +128,57 @@ fn detect_assert_patterns(content: &str) -> bool {
 fn is_sql_keyword(name: &str) -> bool {
     matches!(
         name,
-        "select" | "from" | "where" | "and" | "or" | "not"
-        | "insert" | "into" | "update" | "delete" | "set"
-        | "values" | "null" | "true" | "false" | "join"
-        | "inner" | "outer" | "left" | "right" | "on"
-        | "group" | "order" | "by" | "having" | "limit"
-        | "offset" | "as" | "in" | "exists" | "between"
-        | "like" | "is" | "case" | "when" | "then" | "else"
-        | "end" | "distinct" | "count" | "sum" | "avg"
-        | "min" | "max" | "create" | "alter" | "drop"
-        | "table" | "index" | "view" | "schema"
+        "select"
+            | "from"
+            | "where"
+            | "and"
+            | "or"
+            | "not"
+            | "insert"
+            | "into"
+            | "update"
+            | "delete"
+            | "set"
+            | "values"
+            | "null"
+            | "true"
+            | "false"
+            | "join"
+            | "inner"
+            | "outer"
+            | "left"
+            | "right"
+            | "on"
+            | "group"
+            | "order"
+            | "by"
+            | "having"
+            | "limit"
+            | "offset"
+            | "as"
+            | "in"
+            | "exists"
+            | "between"
+            | "like"
+            | "is"
+            | "case"
+            | "when"
+            | "then"
+            | "else"
+            | "end"
+            | "distinct"
+            | "count"
+            | "sum"
+            | "avg"
+            | "min"
+            | "max"
+            | "create"
+            | "alter"
+            | "drop"
+            | "table"
+            | "index"
+            | "view"
+            | "schema"
     )
 }
 

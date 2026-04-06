@@ -92,10 +92,8 @@ impl Scanner for DestructiveEndpointSafety {
             .collect();
 
         // Phase 2: DB delete operations in files NOT already covered by a DELETE endpoint
-        let endpoint_files: HashSet<PathBuf> = destructive_targets
-            .iter()
-            .map(|t| t.file.clone())
-            .collect();
+        let endpoint_files: HashSet<PathBuf> =
+            destructive_targets.iter().map(|t| t.file.clone()).collect();
 
         let db_delete_refs: Vec<_> = ctx
             .index
@@ -113,10 +111,8 @@ impl Scanner for DestructiveEndpointSafety {
         }
 
         // Phase 3: Soft-delete operations in files not already tracked
-        let covered_files: HashSet<PathBuf> = destructive_targets
-            .iter()
-            .map(|t| t.file.clone())
-            .collect();
+        let covered_files: HashSet<PathBuf> =
+            destructive_targets.iter().map(|t| t.file.clone()).collect();
 
         let soft_delete_targets = files_with_soft_deletes(ctx);
         for target in soft_delete_targets {
@@ -178,8 +174,8 @@ mod tests {
     use crate::config::Config;
     use crate::indexer::store::IndexStore;
     use crate::indexer::types::{
-        ApiEndpoint, DbWriteRef, Framework, SecondaryAuthRef, SecondaryAuthType,
-        SoftDeleteColumn, SoftDeleteType,
+        ApiEndpoint, DbWriteRef, Framework, SecondaryAuthRef, SecondaryAuthType, SoftDeleteColumn,
+        SoftDeleteType,
     };
     use std::path::{Path, PathBuf};
 
@@ -273,10 +269,9 @@ mod tests {
             vec![make_delete_endpoint("/users/:id", "routes/users.ts", 20)],
         );
 
-        store.secondary_auth_refs.insert(
-            file,
-            vec![make_secondary_auth("routes/users.ts", 18)],
-        );
+        store
+            .secondary_auth_refs
+            .insert(file, vec![make_secondary_auth("routes/users.ts", 18)]);
 
         let ctx = ScanContext {
             config: &config,

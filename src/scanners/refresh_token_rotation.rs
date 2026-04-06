@@ -112,7 +112,9 @@ layers: {}
         let result = RefreshTokenRotation.scan(&ctx);
         assert_eq!(result.score, 100);
         assert!(result.findings.is_empty());
-        assert!(result.summary.contains("No refresh token endpoints detected"));
+        assert!(result
+            .summary
+            .contains("No refresh token endpoints detected"));
     }
 
     #[test]
@@ -198,7 +200,10 @@ layers: {}
         let result = RefreshTokenRotation.scan(&ctx);
 
         assert_eq!(result.findings.len(), 2);
-        assert!(result.findings.iter().all(|f| f.severity == Severity::Critical));
+        assert!(result
+            .findings
+            .iter()
+            .all(|f| f.severity == Severity::Critical));
         assert!(result.summary.contains("3 refresh token endpoint(s)"));
         assert!(result.summary.contains("1 with proper rotation"));
         assert!(result.summary.contains("2 missing revocation"));

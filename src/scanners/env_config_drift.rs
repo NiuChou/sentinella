@@ -29,11 +29,7 @@ impl Scanner for EnvConfigDrift {
         let exclude_paths = &ctx.config.env.exclude_paths;
         let exclude_vars = &ctx.config.env.exclude_vars;
 
-        let ref_vars = collect_filtered_var_names(
-            &ctx.index.env_refs,
-            exclude_paths,
-            exclude_vars,
-        );
+        let ref_vars = collect_filtered_var_names(&ctx.index.env_refs, exclude_paths, exclude_vars);
         let config_vars = collect_var_names(&ctx.index.env_configs);
 
         if ref_vars.is_empty() && config_vars.is_empty() {
@@ -105,10 +101,7 @@ impl Scanner for EnvConfigDrift {
         check_unsafe_defaults(ctx, &mut findings, exclude_paths, exclude_vars);
 
         let all_vars: HashSet<&String> = ref_vars.union(&config_vars).collect();
-        let aligned_count = ref_vars
-            .iter()
-            .filter(|v| config_vars.contains(*v))
-            .count();
+        let aligned_count = ref_vars.iter().filter(|v| config_vars.contains(*v)).count();
         let total = all_vars.len();
 
         let score = if total > 0 {
@@ -117,8 +110,14 @@ impl Scanner for EnvConfigDrift {
             100
         };
 
-        let missing = ref_vars.iter().filter(|v| !config_vars.contains(*v)).count();
-        let orphaned = config_vars.iter().filter(|v| !ref_vars.contains(*v)).count();
+        let missing = ref_vars
+            .iter()
+            .filter(|v| !config_vars.contains(*v))
+            .count();
+        let orphaned = config_vars
+            .iter()
+            .filter(|v| !ref_vars.contains(*v))
+            .count();
         let unsafe_count = findings
             .iter()
             .filter(|f| f.message.contains("Unsafe default"))

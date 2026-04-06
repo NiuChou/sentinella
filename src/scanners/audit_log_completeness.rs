@@ -32,7 +32,12 @@ fn collect_mutating_endpoint_files(ctx: &ScanContext) -> HashSet<PathBuf> {
     ctx.index
         .all_api_endpoints()
         .into_iter()
-        .filter(|ep| matches!(ep.method, HttpMethod::Put | HttpMethod::Patch | HttpMethod::Delete))
+        .filter(|ep| {
+            matches!(
+                ep.method,
+                HttpMethod::Put | HttpMethod::Patch | HttpMethod::Delete
+            )
+        })
         .map(|ep| ep.file)
         .collect()
 }

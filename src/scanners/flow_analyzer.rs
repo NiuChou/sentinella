@@ -298,7 +298,10 @@ fn collect_page_files(ctx: &ScanContext) -> Vec<PathBuf> {
             let path = entry.key();
             let file_name = path.file_name()?.to_str()?;
             let lower = file_name.to_lowercase();
-            if lower == "page.tsx" || lower == "page.ts" || lower == "page.jsx" || lower == "page.js"
+            if lower == "page.tsx"
+                || lower == "page.ts"
+                || lower == "page.jsx"
+                || lower == "page.js"
             {
                 Some(path.clone())
             } else {
@@ -309,11 +312,7 @@ fn collect_page_files(ctx: &ScanContext) -> Vec<PathBuf> {
 }
 
 /// BFS through the import graph from `start` to see if any file in `targets` is reachable.
-fn bfs_reaches_any(
-    ctx: &ScanContext,
-    start: &PathBuf,
-    targets: &HashSet<PathBuf>,
-) -> bool {
+fn bfs_reaches_any(ctx: &ScanContext, start: &PathBuf, targets: &HashSet<PathBuf>) -> bool {
     let mut visited: HashSet<PathBuf> = HashSet::new();
     let mut queue: VecDeque<PathBuf> = VecDeque::new();
 

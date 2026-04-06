@@ -1,6 +1,5 @@
 use comfy_table::{
-    presets::UTF8_FULL_CONDENSED, Attribute, Cell, CellAlignment, Color, ContentArrangement,
-    Table,
+    presets::UTF8_FULL_CONDENSED, Attribute, Cell, CellAlignment, Color, ContentArrangement, Table,
 };
 use owo_colors::OwoColorize;
 
@@ -26,11 +25,7 @@ pub fn render_matrix(results: &[ScanResult], config: &Config) {
     println!();
 
     if !config.modules.is_empty() {
-        render_module_layer_table(
-            &config.modules,
-            &config.flows,
-            &config.required_layers,
-        );
+        render_module_layer_table(&config.modules, &config.flows, &config.required_layers);
         println!();
     }
 
@@ -108,7 +103,11 @@ fn assess_module(
     let has_flow = has_module_flow(&module.name, flows);
     let flow = LayerStatus {
         covered: has_flow,
-        detail: if has_flow { "yes".into() } else { String::new() },
+        detail: if has_flow {
+            "yes".into()
+        } else {
+            String::new()
+        },
     };
 
     let score_pct = compute_module_score(&layers, &flow);

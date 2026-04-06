@@ -41,14 +41,11 @@ impl Scanner for ResidueFinder {
 
         for indicator in &all_indicators {
             files_with_residues.insert(indicator.file.clone());
-            by_type
-                .entry(indicator.indicator_type)
-                .or_default()
-                .push((
-                    indicator.file.clone(),
-                    indicator.line,
-                    indicator.matched_text.clone(),
-                ));
+            by_type.entry(indicator.indicator_type).or_default().push((
+                indicator.file.clone(),
+                indicator.line,
+                indicator.matched_text.clone(),
+            ));
         }
 
         // Generate findings per type, grouped
@@ -228,7 +225,10 @@ layers: {}
 
         let result = ResidueFinder.scan(&ctx);
         // 2 files total, 2 with residues => score = 0
-        assert_eq!(result.score, 0, "All files have residues, score should be 0");
+        assert_eq!(
+            result.score, 0,
+            "All files have residues, score should be 0"
+        );
     }
 
     #[test]
@@ -267,7 +267,10 @@ layers: {}
 
     #[test]
     fn severity_mapping_is_correct() {
-        assert_eq!(severity_for_stub_type(StubType::MockData), Severity::Critical);
+        assert_eq!(
+            severity_for_stub_type(StubType::MockData),
+            Severity::Critical
+        );
         assert_eq!(severity_for_stub_type(StubType::Todo), Severity::Warning);
         assert_eq!(severity_for_stub_type(StubType::Hack), Severity::Info);
     }

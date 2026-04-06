@@ -11,14 +11,11 @@ const SCANNER_NAME: &str = "RaceConditionSafety";
 const SCANNER_DESC: &str = "Detects database write operations in auth paths without concurrency protection (transactions, locks, ON CONFLICT)";
 
 /// Keywords in API endpoint paths that indicate auth-related routes.
-const AUTH_PATH_KEYWORDS: &[&str] = &[
-    "login", "register", "auth", "verify", "user", "account",
-];
+const AUTH_PATH_KEYWORDS: &[&str] = &["login", "register", "auth", "verify", "user", "account"];
 
 /// Keywords in file path segments that indicate auth-related source files.
 const AUTH_FILE_KEYWORDS: &[&str] = &[
-    "login", "register", "auth", "verify", "user", "account",
-    "signup", "signin", "session",
+    "login", "register", "auth", "verify", "user", "account", "signup", "signin", "session",
 ];
 
 /// Returns true if the given path string contains any auth-related keyword.
@@ -200,8 +197,7 @@ mod tests {
     use crate::config::Config;
     use crate::indexer::store::IndexStore;
     use crate::indexer::types::{
-        ApiEndpoint, ConcurrencySafetyRef, ConcurrencySafetyType, DbWriteRef, Framework,
-        HttpMethod,
+        ApiEndpoint, ConcurrencySafetyRef, ConcurrencySafetyType, DbWriteRef, Framework, HttpMethod,
     };
     use std::path::Path;
 
@@ -308,7 +304,9 @@ layers: {}
         assert_eq!(result.findings.len(), 1);
         assert_eq!(result.findings[0].severity, Severity::Warning);
         assert!(result.findings[0].message.contains("INSERT"));
-        assert!(result.findings[0].message.contains("concurrency protection"));
+        assert!(result.findings[0]
+            .message
+            .contains("concurrency protection"));
     }
 
     // -----------------------------------------------------------------------
@@ -321,10 +319,7 @@ layers: {}
 
         let file = "src/auth/register.ts";
 
-        insert_db_write(
-            &store,
-            make_db_write("users", DbWriteOp::Insert, file, 25),
-        );
+        insert_db_write(&store, make_db_write("users", DbWriteOp::Insert, file, 25));
         insert_concurrency_ref(&store, make_concurrency_ref(file, 20));
 
         let ctx = ScanContext {
@@ -407,14 +402,8 @@ layers: {}
 
         // File does NOT have an auth-keyword path, but hosts an auth endpoint
         let file = "src/routes/handler.ts";
-        insert_db_write(
-            &store,
-            make_db_write("tokens", DbWriteOp::Upsert, file, 42),
-        );
-        insert_endpoint(
-            &store,
-            make_auth_endpoint("/api/auth/verify", file, 10),
-        );
+        insert_db_write(&store, make_db_write("tokens", DbWriteOp::Upsert, file, 42));
+        insert_endpoint(&store, make_auth_endpoint("/api/auth/verify", file, 10));
 
         let ctx = ScanContext {
             config: &config,
@@ -465,10 +454,7 @@ layers: {}
         let config = minimal_config();
 
         let file = "src/auth/register.ts";
-        insert_db_write(
-            &store,
-            make_db_write("users", DbWriteOp::Insert, file, 25),
-        );
+        insert_db_write(&store, make_db_write("users", DbWriteOp::Insert, file, 25));
         store
             .concurrency_safety_refs
             .entry(PathBuf::from(file))

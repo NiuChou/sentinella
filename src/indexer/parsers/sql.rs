@@ -90,10 +90,7 @@ fn parse_with_ast(source: &str, store: &IndexStore) {
 }
 
 /// Extract table info from a CREATE TABLE statement.
-fn extract_create_table(
-    create_table: &sqlparser::ast::CreateTable,
-    store: &IndexStore,
-) {
+fn extract_create_table(create_table: &sqlparser::ast::CreateTable, store: &IndexStore) {
     let (schema_name, table_name) = extract_object_name(&create_table.name);
     let key = make_key(&schema_name, &table_name);
 
@@ -106,10 +103,7 @@ fn extract_create_table(
 }
 
 /// Extract ALTER TABLE ... ENABLE/FORCE ROW LEVEL SECURITY.
-fn extract_alter_table(
-    alter_table: &sqlparser::ast::AlterTable,
-    store: &IndexStore,
-) {
+fn extract_alter_table(alter_table: &sqlparser::ast::AlterTable, store: &IndexStore) {
     let (schema_name, table_name) = extract_object_name(&alter_table.name);
     let key = make_key(&schema_name, &table_name);
 
@@ -138,10 +132,7 @@ fn extract_alter_table(
 }
 
 /// Extract GRANT ... ON table TO role.
-fn extract_grant(
-    grant: &sqlparser::ast::Grant,
-    store: &IndexStore,
-) {
+fn extract_grant(grant: &sqlparser::ast::Grant, store: &IndexStore) {
     let table_refs = match &grant.objects {
         Some(GrantObjects::Tables(tables)) => tables,
         _ => return,
@@ -172,9 +163,7 @@ fn extract_grant(
 // ---------------------------------------------------------------------------
 
 /// Extract (optional_schema, table_name) from an ObjectName.
-fn extract_object_name(
-    name: &sqlparser::ast::ObjectName,
-) -> (Option<String>, String) {
+fn extract_object_name(name: &sqlparser::ast::ObjectName) -> (Option<String>, String) {
     let parts: Vec<String> = name
         .0
         .iter()
@@ -209,9 +198,7 @@ fn make_key(schema: &Option<String>, table: &str) -> String {
 
 fn rls_policy_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r"(?i)CREATE\s+POLICY\s+\w+\s+ON\s+(?:(\w+)\.)?(\w+)").unwrap()
-    })
+    RE.get_or_init(|| Regex::new(r"(?i)CREATE\s+POLICY\s+\w+\s+ON\s+(?:(\w+)\.)?(\w+)").unwrap())
 }
 
 /// Match: CREATE POLICY policy_name ON [schema.]table_name ... TO role_name
@@ -243,20 +230,16 @@ fn force_rls_re() -> &'static Regex {
 fn create_table_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(
-            r#"(?i)CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?(\w+)"?\.)?"?(\w+)"?"#,
-        )
-        .unwrap()
+        Regex::new(r#"(?i)CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?(\w+)"?\.)?"?(\w+)"?"#)
+            .unwrap()
     })
 }
 
 fn rls_enable_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(
-            r"(?i)ALTER\s+TABLE\s+(?:(\w+)\.)?(\w+)\s+ENABLE\s+ROW\s+LEVEL\s+SECURITY",
-        )
-        .unwrap()
+        Regex::new(r"(?i)ALTER\s+TABLE\s+(?:(\w+)\.)?(\w+)\s+ENABLE\s+ROW\s+LEVEL\s+SECURITY")
+            .unwrap()
     })
 }
 
@@ -512,12 +495,7 @@ fn extract_status_literals_from_query(
     }
 }
 
-fn extract_status_literals_from_expr(
-    path: &Path,
-    source: &str,
-    expr: &Expr,
-    store: &IndexStore,
-) {
+fn extract_status_literals_from_expr(path: &Path, source: &str, expr: &Expr, store: &IndexStore) {
     match expr {
         Expr::BinaryOp { left, op, right } => {
             if matches!(op, BinaryOperator::Eq | BinaryOperator::NotEq) {
@@ -543,13 +521,17 @@ fn try_extract_status_literal(
 ) {
     let col_name = match col_expr {
         Expr::Identifier(ident) => ident.value.to_lowercase(),
-        Expr::CompoundIdentifier(parts) => {
-            parts.last().map(|p| p.value.to_lowercase()).unwrap_or_default()
-        }
+        Expr::CompoundIdentifier(parts) => parts
+            .last()
+            .map(|p| p.value.to_lowercase())
+            .unwrap_or_default(),
         _ => return,
     };
 
-    if !matches!(col_name.as_str(), "status" | "state" | "account_status" | "user_status" | "order_status") {
+    if !matches!(
+        col_name.as_str(),
+        "status" | "state" | "account_status" | "user_status" | "order_status"
+    ) {
         return;
     }
 
@@ -644,7 +626,8 @@ fn extract_soft_delete_regex(path: &Path, source: &str, store: &IndexStore) {
 fn status_literal_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"(?i)\b(status|state|account_status|user_status|order_status)\s*=\s*'([^']+)'").unwrap()
+        Regex::new(r"(?i)\b(status|state|account_status|user_status|order_status)\s*=\s*'([^']+)'")
+            .unwrap()
     })
 }
 
@@ -699,12 +682,10 @@ fn extract_unique_constraints(path: &Path, source: &str, store: &IndexStore) {
         if let Statement::CreateTable(ct) = stmt {
             let (_, table_name) = extract_object_name(&ct.name);
             for col in &ct.columns {
-                let has_unique = col.options.iter().any(|opt| {
-                    matches!(
-                        opt.option,
-                        sqlparser::ast::ColumnOption::Unique { .. }
-                    )
-                });
+                let has_unique = col
+                    .options
+                    .iter()
+                    .any(|opt| matches!(opt.option, sqlparser::ast::ColumnOption::Unique { .. }));
                 if has_unique {
                     let line = find_line_for_text(source, &col.name.value);
                     let entry = UniqueConstraintRef {
@@ -750,8 +731,14 @@ fn extract_unique_constraints(path: &Path, source: &str, store: &IndexStore) {
     let re = unique_constraint_re();
     for (line_num, line_text) in source.lines().enumerate() {
         if let Some(cap) = re.captures(line_text) {
-            let table_name = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
-            let column_name = cap.get(3).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let table_name = cap
+                .get(2)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
+            let column_name = cap
+                .get(3)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
             // Avoid duplicates from AST
             let already_exists = store
                 .unique_constraint_refs
@@ -802,12 +789,21 @@ fn extract_column_lookups(path: &Path, source: &str, store: &IndexStore) {
     let re = where_eq_re();
     for (line_num, line_text) in source.lines().enumerate() {
         if let Some(cap) = re.captures(line_text) {
-            let table_name = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
-            let column_name = cap.get(3).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let table_name = cap
+                .get(2)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
+            let column_name = cap
+                .get(3)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
             let already = store
                 .column_lookup_refs
                 .get(&table_name)
-                .map(|refs| refs.iter().any(|r| r.column_name == column_name && r.line == line_num + 1))
+                .map(|refs| {
+                    refs.iter()
+                        .any(|r| r.column_name == column_name && r.line == line_num + 1)
+                })
                 .unwrap_or(false);
             if !already {
                 let entry = ColumnLookupRef {
@@ -847,12 +843,7 @@ fn extract_lookups_from_query(
     }
 }
 
-fn extract_lookups_from_where(
-    path: &Path,
-    source: &str,
-    expr: &Expr,
-    store: &IndexStore,
-) {
+fn extract_lookups_from_where(path: &Path, source: &str, expr: &Expr, store: &IndexStore) {
     extract_lookups_from_where_with_table(path, source, expr, "", store);
 }
 
@@ -964,10 +955,7 @@ mod tests {
             .get("public.orders")
             .map(|o| o.has_rls)
             .unwrap_or(true);
-        assert!(
-            !has_rls,
-            "orders should not have RLS (no policy or alter)"
-        );
+        assert!(!has_rls, "orders should not have RLS (no policy or alter)");
     }
 
     #[test]
@@ -988,10 +976,7 @@ mod tests {
     fn file_info_is_populated() {
         let store = parse_fixture("migrations.sql");
         let path = fixture_path("migrations.sql");
-        assert!(
-            store.files.contains_key(&path),
-            "FileInfo should be stored"
-        );
+        assert!(store.files.contains_key(&path), "FileInfo should be stored");
         let (lang, lines) = store
             .files
             .get(&path)
@@ -1012,8 +997,10 @@ mod tests {
     fn extracts_session_var_from_policy() {
         let store = parse_fixture("migrations.sql");
         let policies = store.all_rls_policies();
-        let with_session_var: Vec<_> =
-            policies.iter().filter(|p| p.session_var.is_some()).collect();
+        let with_session_var: Vec<_> = policies
+            .iter()
+            .filter(|p| p.session_var.is_some())
+            .collect();
         // This may be empty if fixture doesn't have current_setting -- that's OK
         // The important thing is the parser doesn't crash
         let _ = with_session_var;

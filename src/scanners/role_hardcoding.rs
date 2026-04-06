@@ -67,7 +67,12 @@ fn compute_score(correct_checks: usize, total_checks: usize) -> u8 {
     ((correct_checks as f64 / total_checks as f64) * 100.0).round() as u8
 }
 
-fn build_summary(findings: &[Finding], total_checks: usize, correct_checks: usize, score: u8) -> String {
+fn build_summary(
+    findings: &[Finding],
+    total_checks: usize,
+    correct_checks: usize,
+    score: u8,
+) -> String {
     if total_checks == 0 {
         return "No role checks found to analyze.".to_string();
     }
@@ -116,7 +121,8 @@ impl Scanner for RoleHardcoding {
         }
 
         // Collect every role value across all checks
-        let all_role_values: Vec<String> = all_checks.iter().map(|c| c.role_value.clone()).collect();
+        let all_role_values: Vec<String> =
+            all_checks.iter().map(|c| c.role_value.clone()).collect();
         let role_variants = build_role_variants(&all_role_values);
 
         let mut findings: Vec<Finding> = Vec::new();
@@ -266,7 +272,10 @@ mod tests {
 
         let result = RoleHardcoding.scan(&ctx);
         assert_eq!(result.findings.len(), 2);
-        assert!(result.findings.iter().all(|f| f.severity == Severity::Warning));
+        assert!(result
+            .findings
+            .iter()
+            .all(|f| f.severity == Severity::Warning));
         assert_eq!(result.score, 0);
     }
 
@@ -305,18 +314,10 @@ mod tests {
         let result = RoleHardcoding.scan(&ctx);
         assert_eq!(result.findings.len(), 2);
 
-        let middleware_finding = result
-            .findings
-            .iter()
-            .find(|f| f.line == Some(5))
-            .unwrap();
+        let middleware_finding = result.findings.iter().find(|f| f.line == Some(5)).unwrap();
         assert_eq!(middleware_finding.severity, Severity::Critical);
 
-        let service_finding = result
-            .findings
-            .iter()
-            .find(|f| f.line == Some(15))
-            .unwrap();
+        let service_finding = result.findings.iter().find(|f| f.line == Some(15)).unwrap();
         assert_eq!(service_finding.severity, Severity::Warning);
     }
 
@@ -509,11 +510,7 @@ mod tests {
         };
 
         let result = RoleHardcoding.scan(&ctx);
-        let critical = result
-            .findings
-            .iter()
-            .find(|f| f.line == Some(10))
-            .unwrap();
+        let critical = result.findings.iter().find(|f| f.line == Some(10)).unwrap();
         assert_eq!(critical.severity, Severity::Critical);
     }
 
@@ -552,11 +549,7 @@ mod tests {
         let result = RoleHardcoding.scan(&ctx);
         for finding in &result.findings {
             assert!(finding.suggestion.is_some());
-            assert!(finding
-                .suggestion
-                .as_ref()
-                .unwrap()
-                .contains("role set"));
+            assert!(finding.suggestion.as_ref().unwrap().contains("role set"));
         }
     }
 }

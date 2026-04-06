@@ -60,14 +60,11 @@ fn endpoint_has_auth_scope(ctx: &ScanContext, file: &std::path::Path, line: usiz
         .middleware_scopes
         .get(file)
         .map(|scopes| {
-            scopes
-                .value()
-                .iter()
-                .any(|scope| {
-                    line >= scope.line_start
-                        && line <= scope.line_end
-                        && is_auth_middleware(&scope.middleware_name)
-                })
+            scopes.value().iter().any(|scope| {
+                line >= scope.line_start
+                    && line <= scope.line_end
+                    && is_auth_middleware(&scope.middleware_name)
+            })
         })
         .unwrap_or(false)
 }
@@ -125,12 +122,7 @@ impl Scanner for SecurityCompleteness {
 
         let score = compute_score(protected_count, total_endpoints);
 
-        let summary = build_summary(
-            &findings,
-            total_endpoints,
-            protected_count,
-            score,
-        );
+        let summary = build_summary(&findings, total_endpoints, protected_count, score);
 
         ScanResult {
             scanner: SCANNER_ID.to_string(),
@@ -334,12 +326,7 @@ mod tests {
 
         store.api_endpoints.insert(
             "/data".into(),
-            vec![make_endpoint(
-                HttpMethod::Put,
-                "/data",
-                "routes/api.ts",
-                10,
-            )],
+            vec![make_endpoint(HttpMethod::Put, "/data", "routes/api.ts", 10)],
         );
 
         store.middleware_scopes.insert(
@@ -423,5 +410,4 @@ mod tests {
         assert_eq!(result.score, 50);
         assert_eq!(result.findings.len(), 1);
     }
-
 }

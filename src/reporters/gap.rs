@@ -63,10 +63,7 @@ fn render_terminal(results: &[ScanResult]) -> String {
             buf.push_str(&format!("    {} {}\n", location, finding.message));
 
             if let Some(suggestion) = &finding.suggestion {
-                buf.push_str(&format!(
-                    "      {} {suggestion}\n",
-                    "hint:".dimmed()
-                ));
+                buf.push_str(&format!("      {} {suggestion}\n", "hint:".dimmed()));
             }
         }
     }
@@ -141,10 +138,7 @@ fn render_markdown(results: &[ScanResult]) -> String {
                 (Some(file), None) => format!("`{}`", file.display()),
                 _ => String::from("-"),
             };
-            let suggestion = finding
-                .suggestion
-                .as_deref()
-                .unwrap_or("-");
+            let suggestion = finding.suggestion.as_deref().unwrap_or("-");
             md.push_str(&format!(
                 "| {} | {} | {} | {} |\n",
                 finding.scanner, location, finding.message, suggestion
@@ -293,8 +287,7 @@ mod tests {
         let results = vec![ScanResult {
             scanner: "S1".into(),
             findings: vec![
-                Finding::new("S1", Severity::Warning, "needs fix")
-                    .with_suggestion("try this"),
+                Finding::new("S1", Severity::Warning, "needs fix").with_suggestion("try this")
             ],
             score: 50,
             summary: String::new(),
@@ -308,22 +301,22 @@ mod tests {
         let results = vec![
             ScanResult {
                 scanner: "S1-stub-detector".into(),
-                findings: vec![
-                    Finding::new("S1", Severity::Critical, "Stub detected in useData.ts")
-                        .with_file(std::path::PathBuf::from("src/hooks/useData.ts"))
-                        .with_line(10)
-                        .with_suggestion("Replace with real API call"),
-                ],
+                findings: vec![Finding::new(
+                    "S1",
+                    Severity::Critical,
+                    "Stub detected in useData.ts",
+                )
+                .with_file(std::path::PathBuf::from("src/hooks/useData.ts"))
+                .with_line(10)
+                .with_suggestion("Replace with real API call")],
                 score: 75,
                 summary: "1 stub detected".into(),
             },
             ScanResult {
                 scanner: "S6-residue-finder".into(),
-                findings: vec![
-                    Finding::new("S6", Severity::Warning, "TODO residue found")
-                        .with_file(std::path::PathBuf::from("src/api.ts"))
-                        .with_line(42),
-                ],
+                findings: vec![Finding::new("S6", Severity::Warning, "TODO residue found")
+                    .with_file(std::path::PathBuf::from("src/api.ts"))
+                    .with_line(42)],
                 score: 90,
                 summary: "1 residue marker".into(),
             },

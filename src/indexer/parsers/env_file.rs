@@ -63,11 +63,7 @@ fn parse_env_vars(path: &Path, source: &str, store: &IndexStore) {
                     source_type: EnvSourceType::DotEnv,
                 };
 
-                store
-                    .env_configs
-                    .entry(var_name)
-                    .or_default()
-                    .push(config);
+                store.env_configs.entry(var_name).or_default().push(config);
             }
         }
     }

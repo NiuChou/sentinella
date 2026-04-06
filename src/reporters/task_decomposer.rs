@@ -120,11 +120,8 @@ pub fn decompose(results: &[ScanResult]) -> Vec<Task> {
                 let effort = estimate_effort(task_type, finding.severity);
 
                 let title = build_title(task_type, &finding.message);
-                let description = build_description(
-                    task_type,
-                    &finding.message,
-                    finding.suggestion.as_deref(),
-                );
+                let description =
+                    build_description(task_type, &finding.message, finding.suggestion.as_deref());
 
                 tasks.push(Task {
                     title,
@@ -149,10 +146,7 @@ pub fn decompose(results: &[ScanResult]) -> Vec<Task> {
 
 /// Extract a short scanner id like "S1" from names like "S1-stub-detector".
 fn extract_scanner_id(scanner: &str) -> &str {
-    scanner
-        .split('-')
-        .next()
-        .unwrap_or(scanner)
+    scanner.split('-').next().unwrap_or(scanner)
 }
 
 /// Classify an S12 data-isolation finding into a specific task type based on
@@ -160,7 +154,8 @@ fn extract_scanner_id(scanner: &str) -> &str {
 fn classify_s12_finding(message: &str) -> TaskType {
     if message.contains("ghost table") || message.contains("never written") {
         TaskType::FixGhostTable
-    } else if message.contains("RLS") || message.contains("SET LOCAL") || message.contains("FORCE") {
+    } else if message.contains("RLS") || message.contains("SET LOCAL") || message.contains("FORCE")
+    {
         TaskType::FixRLS
     } else if message.contains("Hardcoded credential") {
         TaskType::FixCredential
@@ -174,7 +169,11 @@ fn classify_s12_finding(message: &str) -> TaskType {
 fn scanner_to_task_types(id: &str) -> Vec<TaskType> {
     match id {
         "S1" => vec![TaskType::CreateHook, TaskType::CreatePage],
-        "S2" => vec![TaskType::CreateBff, TaskType::CreateHook, TaskType::CreatePage],
+        "S2" => vec![
+            TaskType::CreateBff,
+            TaskType::CreateHook,
+            TaskType::CreatePage,
+        ],
         "S3" => vec![TaskType::FixFlow],
         "S4" => vec![TaskType::AddDeploy],
         "S5" => vec![TaskType::FixFlow, TaskType::AddConfig],
@@ -267,9 +266,7 @@ fn build_description(task_type: TaskType, message: &str, suggestion: Option<&str
             "Align the API contract between producer and consumer. \
              Ensure request/response shapes match the specification."
         }
-        TaskType::AddTest => {
-            "Add unit and/or integration tests to cover the identified gap."
-        }
+        TaskType::AddTest => "Add unit and/or integration tests to cover the identified gap.",
         TaskType::AddConfig => {
             "Add or update configuration (e.g. auth middleware, env vars) \
              to satisfy the requirement."

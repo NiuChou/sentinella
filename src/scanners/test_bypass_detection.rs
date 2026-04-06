@@ -143,11 +143,7 @@ layers: {}
         serde_yaml::from_str(yaml).unwrap()
     }
 
-    fn make_ref(
-        bypass_type: TestBypassType,
-        matched_value: &str,
-        line: usize,
-    ) -> TestBypassRef {
+    fn make_ref(bypass_type: TestBypassType, matched_value: &str, line: usize) -> TestBypassRef {
         TestBypassRef {
             file: PathBuf::from("src/auth/login.ts"),
             line,
@@ -182,11 +178,7 @@ layers: {}
     #[test]
     fn detects_hardcoded_phone() {
         let config = minimal_config();
-        let store = store_with_bypass(make_ref(
-            TestBypassType::HardcodedPhone,
-            "+1555000000",
-            12,
-        ));
+        let store = store_with_bypass(make_ref(TestBypassType::HardcodedPhone, "+1555000000", 12));
         let ctx = ScanContext {
             config: &config,
             index: &store,
@@ -217,18 +209,16 @@ layers: {}
         let result = TestBypassDetection.scan(&ctx);
         assert_eq!(result.findings.len(), 1);
         assert_eq!(result.findings[0].severity, Severity::Critical);
-        assert!(result.findings[0].message.contains("Master/backdoor password"));
+        assert!(result.findings[0]
+            .message
+            .contains("Master/backdoor password"));
         assert!(result.findings[0].message.contains("superSecret123!"));
     }
 
     #[test]
     fn detects_debug_flag() {
         let config = minimal_config();
-        let store = store_with_bypass(make_ref(
-            TestBypassType::DebugFlag,
-            "X-Debug-Auth: true",
-            5,
-        ));
+        let store = store_with_bypass(make_ref(TestBypassType::DebugFlag, "X-Debug-Auth: true", 5));
         let ctx = ScanContext {
             config: &config,
             index: &store,

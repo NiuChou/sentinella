@@ -179,11 +179,7 @@ layers: {}
 
     fn insert_endpoint(store: &IndexStore, ep: &ApiEndpoint) {
         let key = normalize_api_path(&ep.path);
-        store
-            .api_endpoints
-            .entry(key)
-            .or_default()
-            .push(ep.clone());
+        store.api_endpoints.entry(key).or_default().push(ep.clone());
     }
 
     fn insert_rate_limit(store: &IndexStore, file: &str, line: usize, limit_type: RateLimitType) {
@@ -293,7 +289,10 @@ layers: {}
         // 1 protected out of 3 = 33%
         assert_eq!(result.score, 33);
         assert_eq!(result.findings.len(), 2);
-        assert!(result.findings.iter().all(|f| f.severity == Severity::Critical));
+        assert!(result
+            .findings
+            .iter()
+            .all(|f| f.severity == Severity::Critical));
     }
 
     #[test]

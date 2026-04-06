@@ -135,9 +135,7 @@ mod tests {
         let source = std::fs::read(&path)
             .unwrap_or_else(|e| panic!("Failed to read {}: {e}", path.display()));
         let store = IndexStore::new();
-        DockerfileParser
-            .parse_file(&path, &source, &store)
-            .unwrap();
+        DockerfileParser.parse_file(&path, &source, &store).unwrap();
         store
     }
 
@@ -147,7 +145,10 @@ mod tests {
         let check = store.dockerfile_checks.iter().next();
         assert!(check.is_some(), "Should have a dockerfile check entry");
         let entry = check.unwrap();
-        assert!(entry.has_healthcheck, "Should detect HEALTHCHECK instruction");
+        assert!(
+            entry.has_healthcheck,
+            "Should detect HEALTHCHECK instruction"
+        );
     }
 
     #[test]

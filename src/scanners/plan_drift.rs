@@ -57,10 +57,7 @@ fn build_empty_result(notion_db_id: &str) -> ScanResult {
         findings: vec![Finding::new(
             SCANNER_ID,
             Severity::Info,
-            format!(
-                "Notion database '{}' returned no plan items",
-                notion_db_id
-            ),
+            format!("Notion database '{}' returned no plan items", notion_db_id),
         )
         .with_suggestion(
             "Ensure the Notion database contains plan items with feature names and routes",
@@ -88,7 +85,10 @@ fn evaluate_plan_items(ctx: &ScanContext, plan_items: &[PlanItem]) -> ScanResult
                 Finding::new(
                     SCANNER_ID,
                     severity,
-                    format!("Plan item not implemented: '{}' [{}]", item.name, item.priority),
+                    format!(
+                        "Plan item not implemented: '{}' [{}]",
+                        item.name, item.priority
+                    ),
                 )
                 .with_suggestion(format!(
                     "Implement feature '{}' or update the plan to reflect current scope",
@@ -217,16 +217,10 @@ fn parse_single_page(page: &serde_json::Value) -> Option<PlanItem> {
 
 /// Extract the title text from a Notion page's "Name" or "Title" property.
 fn extract_title(properties: &serde_json::Value) -> Option<String> {
-    let title_prop = properties
-        .get("Name")
-        .or_else(|| properties.get("Title"))?;
+    let title_prop = properties.get("Name").or_else(|| properties.get("Title"))?;
 
     let title_arr = title_prop.get("title")?.as_array()?;
-    let text = title_arr
-        .first()?
-        .get("text")?
-        .get("content")?
-        .as_str()?;
+    let text = title_arr.first()?.get("text")?.get("content")?.as_str()?;
 
     if text.is_empty() {
         return None;

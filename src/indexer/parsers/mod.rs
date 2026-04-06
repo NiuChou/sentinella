@@ -6,15 +6,15 @@ use tree_sitter::{Language, Parser, Query, QueryCursor, Tree};
 
 use crate::indexer::store::IndexStore;
 
-pub mod typescript;
-pub mod python;
-pub mod go_lang;
-pub mod sql;
 pub mod dockerfile;
-pub mod yaml_config;
-pub mod rust_lang;
 pub mod env_file;
+pub mod go_lang;
+pub mod python;
+pub mod rust_lang;
+pub mod sql;
 pub mod test_file;
+pub mod typescript;
+pub mod yaml_config;
 
 /// Trait for language-specific parsers
 pub trait LanguageParser: Send + Sync {
@@ -22,12 +22,7 @@ pub trait LanguageParser: Send + Sync {
     fn extensions(&self) -> &[&str];
 
     /// Parse a file and populate the index store
-    fn parse_file(
-        &self,
-        path: &Path,
-        source: &[u8],
-        store: &IndexStore,
-    ) -> Result<()>;
+    fn parse_file(&self, path: &Path, source: &[u8], store: &IndexStore) -> Result<()>;
 }
 
 /// Create a tree-sitter parser for the given language

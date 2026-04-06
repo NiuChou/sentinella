@@ -168,12 +168,7 @@ fn check_rls_activation(ctx: &ScanContext, di_config: &DataIsolationConfig) -> V
             let session_var = store
                 .rls_policies
                 .get(table_key)
-                .and_then(|policies| {
-                    policies
-                        .value()
-                        .iter()
-                        .find_map(|p| p.session_var.clone())
-                })
+                .and_then(|policies| policies.value().iter().find_map(|p| p.session_var.clone()))
                 .unwrap_or_else(|| expected_var.clone());
 
             findings.push(
@@ -296,8 +291,7 @@ fn check_missing_ownership(ctx: &ScanContext, di_config: &DataIsolationConfig) -
             }
 
             // Check if the query is in a file that has write endpoints
-            let in_write_endpoint_file =
-                write_endpoint_files.iter().any(|f| f == &query_ref.file);
+            let in_write_endpoint_file = write_endpoint_files.iter().any(|f| f == &query_ref.file);
             if !in_write_endpoint_file {
                 continue;
             }
@@ -396,10 +390,13 @@ fn check_cache_only(ctx: &ScanContext, di_config: &DataIsolationConfig) -> Vec<F
         let key_pattern = entry.key();
 
         // Check exclude patterns
-        let excluded = di_config.exclude_redis_patterns.iter().any(|excl: &String| {
-            let excl_prefix = excl.trim_end_matches('*');
-            key_pattern.starts_with(excl_prefix)
-        });
+        let excluded = di_config
+            .exclude_redis_patterns
+            .iter()
+            .any(|excl: &String| {
+                let excl_prefix = excl.trim_end_matches('*');
+                key_pattern.starts_with(excl_prefix)
+            });
 
         if excluded {
             continue;
@@ -486,7 +483,10 @@ fn check_hardcoded_creds(ctx: &ScanContext) -> Vec<Finding> {
 
 const BACKGROUND_PATH_SEGMENTS: &[&str] = &["/worker/", "/job/", "/cron/", "/migration/", "/seed/"];
 
-fn is_admin_pool(pool_ref: &crate::indexer::types::DbPoolRef, config: &DataIsolationConfig) -> bool {
+fn is_admin_pool(
+    pool_ref: &crate::indexer::types::DbPoolRef,
+    config: &DataIsolationConfig,
+) -> bool {
     let conn_var_upper = pool_ref
         .connection_var
         .as_deref()
@@ -503,10 +503,7 @@ fn is_admin_pool(pool_ref: &crate::indexer::types::DbPoolRef, config: &DataIsola
         || pool_name_lower.contains("admin")
 }
 
-fn is_user_facing_file(
-    file: &std::path::Path,
-    store: &crate::indexer::store::IndexStore,
-) -> bool {
+fn is_user_facing_file(file: &std::path::Path, store: &crate::indexer::store::IndexStore) -> bool {
     let file_str = file.to_string_lossy();
 
     // If the file defines API endpoints, it's user-facing
@@ -544,10 +541,7 @@ fn check_dual_pool(ctx: &ScanContext, config: &DataIsolationConfig) -> Vec<Findi
                 continue;
             }
 
-            let conn_var_display = pool_ref
-                .connection_var
-                .as_deref()
-                .unwrap_or("(none)");
+            let conn_var_display = pool_ref.connection_var.as_deref().unwrap_or("(none)");
 
             findings.push(
                 Finding::new(
@@ -788,21 +782,22 @@ fn check_casing_drift(col: &str, refs: &[&StatusLiteralRef]) -> Option<Finding> 
     })
 }
 
-fn check_cross_service_value_drift(
-    col: &str,
-    refs: &[&StatusLiteralRef],
-) -> Option<Finding> {
+fn check_cross_service_value_drift(col: &str, refs: &[&StatusLiteralRef]) -> Option<Finding> {
     let mut values_by_service: HashMap<&str, HashSet<&str>> = HashMap::new();
     for r in refs {
         let svc = r.service_name.as_deref().unwrap_or("unknown");
-        values_by_service.entry(svc).or_default().insert(r.literal_value.as_str());
+        values_by_service
+            .entry(svc)
+            .or_default()
+            .insert(r.literal_value.as_str());
     }
 
     if values_by_service.len() < 2 {
         return None;
     }
 
-    let services: Vec<(&str, &HashSet<&str>)> = values_by_service.iter().map(|(&k, v)| (k, v)).collect();
+    let services: Vec<(&str, &HashSet<&str>)> =
+        values_by_service.iter().map(|(&k, v)| (k, v)).collect();
     let (first_svc, first_set) = services[0];
 
     for &(svc, vals) in &services[1..] {
@@ -1108,10 +1103,7 @@ mod tests {
             .iter()
             .filter(|f| f.message.contains("SET LOCAL"))
             .collect();
-        assert!(
-            !rls_findings.is_empty(),
-            "Should flag RLS not activated"
-        );
+        assert!(!rls_findings.is_empty(), "Should flag RLS not activated");
         assert_eq!(rls_findings[0].severity, Severity::Critical);
     }
 
@@ -1423,10 +1415,7 @@ mod tests {
             .iter()
             .filter(|f| f.message.contains("directly accesses table"))
             .collect();
-        assert!(
-            !d10.is_empty(),
-            "Should flag cross-service table access"
-        );
+        assert!(!d10.is_empty(), "Should flag cross-service table access");
         assert_eq!(d10[0].severity, Severity::Warning);
         assert!(d10[0].message.contains("users"));
         assert!(d10[0].message.contains("billing"));

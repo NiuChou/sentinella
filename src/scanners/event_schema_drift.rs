@@ -44,11 +44,16 @@ impl Scanner for EventSchemaDrift {
                             Finding::new(
                                 SCANNER_ID,
                                 Severity::Warning,
-                                format!("Unhandled event: topic '{}' is produced but has no consumer", topic),
+                                format!(
+                                    "Unhandled event: topic '{}' is produced but has no consumer",
+                                    topic
+                                ),
                             )
                             .with_file(entry.file.clone())
                             .with_line(entry.line)
-                            .with_suggestion("Add a consumer for this event or remove the producer if obsolete"),
+                            .with_suggestion(
+                                "Add a consumer for this event or remove the producer if obsolete",
+                            ),
                         );
                     }
                 }
@@ -65,7 +70,10 @@ impl Scanner for EventSchemaDrift {
                             Finding::new(
                                 SCANNER_ID,
                                 Severity::Critical,
-                                format!("Dead listener: topic '{}' is consumed but has no producer", topic),
+                                format!(
+                                    "Dead listener: topic '{}' is consumed but has no producer",
+                                    topic
+                                ),
                             )
                             .with_file(entry.file.clone())
                             .with_line(entry.line)
@@ -93,9 +101,18 @@ impl Scanner for EventSchemaDrift {
             "{} topics total, {} aligned, {} unhandled, {} dead listeners, {} naming drifts",
             total,
             aligned_count,
-            producer_topics.iter().filter(|t| !consumer_topics.contains(*t)).count(),
-            consumer_topics.iter().filter(|t| !producer_topics.contains(*t)).count(),
-            findings.iter().filter(|f| f.message.contains("Naming drift")).count(),
+            producer_topics
+                .iter()
+                .filter(|t| !consumer_topics.contains(*t))
+                .count(),
+            consumer_topics
+                .iter()
+                .filter(|t| !producer_topics.contains(*t))
+                .count(),
+            findings
+                .iter()
+                .filter(|f| f.message.contains("Naming drift"))
+                .count(),
         );
 
         ScanResult {
@@ -136,16 +153,16 @@ fn collect_topics<V>(map: &dashmap::DashMap<String, Vec<V>>) -> HashSet<String> 
 /// Check if a producer topic has a fuzzy match in the consumer topics.
 /// Handles cases like "asset.created" matching "plm.asset.created".
 fn has_fuzzy_consumer(producer_topic: &str, consumer_topics: &HashSet<String>) -> bool {
-    consumer_topics.iter().any(|ct| {
-        ct.ends_with(producer_topic) || producer_topic.ends_with(ct.as_str())
-    })
+    consumer_topics
+        .iter()
+        .any(|ct| ct.ends_with(producer_topic) || producer_topic.ends_with(ct.as_str()))
 }
 
 /// Check if a consumer topic has a fuzzy match in the producer topics.
 fn has_fuzzy_producer(consumer_topic: &str, producer_topics: &HashSet<String>) -> bool {
-    producer_topics.iter().any(|pt| {
-        pt.ends_with(consumer_topic) || consumer_topic.ends_with(pt.as_str())
-    })
+    producer_topics
+        .iter()
+        .any(|pt| pt.ends_with(consumer_topic) || consumer_topic.ends_with(pt.as_str()))
 }
 
 /// Detect naming drift: topics that share a suffix but differ by a namespace prefix.
@@ -215,7 +232,8 @@ mod tests {
 
     #[test]
     fn test_has_fuzzy_consumer_suffix_match() {
-        let consumers: HashSet<String> = vec!["plm.asset.created".to_string()].into_iter().collect();
+        let consumers: HashSet<String> =
+            vec!["plm.asset.created".to_string()].into_iter().collect();
         assert!(has_fuzzy_consumer("asset.created", &consumers));
     }
 

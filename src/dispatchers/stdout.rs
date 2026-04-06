@@ -1,6 +1,5 @@
 use comfy_table::{
-    presets::UTF8_FULL_CONDENSED, Attribute, Cell, CellAlignment, Color, ContentArrangement,
-    Table,
+    presets::UTF8_FULL_CONDENSED, Attribute, Cell, CellAlignment, Color, ContentArrangement, Table,
 };
 
 use crate::reporters::task_decomposer::{Priority, Task};

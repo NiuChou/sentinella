@@ -5,19 +5,17 @@ use anyhow::Result;
 use regex::Regex;
 
 use super::{
-    count_lines, create_parser, find_capture, hash_source, parse_source, run_query,
-    LanguageParser,
+    count_lines, create_parser, find_capture, hash_source, parse_source, run_query, LanguageParser,
 };
 use crate::indexer::store::{normalize_api_path, IndexStore};
 use crate::indexer::types::{
     ApiCall, ApiEndpoint, AuditLogRef, ConcurrencySafetyRef, ConcurrencySafetyType, DbPoolRef,
-    DbWriteOp, DbWriteRef, ErrorHandlingRef, ErrorHandlingType, FileInfo, Framework,
+    DbWriteOp, DbWriteRef, EnvRef, ErrorHandlingRef, ErrorHandlingType, FileInfo, Framework,
     FunctionSignature, HardcodedCredential, HttpMethod, ImportEdge, InsecureStorageRef,
     InsecureStorageType, Language, MiddlewareScope, RateLimitRef, RateLimitType, RedisKeyRef,
     RedisOp, RlsContextRef, RoleCheckRef, RoleCheckType, SecondaryAuthRef, SecondaryAuthType,
-    SensitiveLogRef, SensitiveLogType, SessionInvalidationRef, SessionInvalidationType,
-    TestBypassRef, TestBypassType, TokenRefreshRef, EnvRef, SqlQueryOp, SqlQueryRef,
-    StubIndicator, StubType,
+    SensitiveLogRef, SensitiveLogType, SessionInvalidationRef, SessionInvalidationType, SqlQueryOp,
+    SqlQueryRef, StubIndicator, StubType, TestBypassRef, TestBypassType, TokenRefreshRef,
 };
 
 const ROUTES_QUERY: &str = include_str!("../queries/typescript/routes.scm");
@@ -140,9 +138,7 @@ fn parse_routes(
             .or_else(|| find_capture(captures, "method_name"));
         let route_cap = find_capture(captures, "route_path");
 
-        if let (Some((_, method_text, _)), Some((_, route_text, line))) =
-            (method_cap, route_cap)
-        {
+        if let (Some((_, method_text, _)), Some((_, route_text, line))) = (method_cap, route_cap) {
             let method = match parse_method(method_text) {
                 Some(m) => m,
                 None => return,
@@ -268,8 +264,8 @@ fn parse_api_calls(
     store: &IndexStore,
 ) {
     run_query(API_CALLS_QUERY, language, source, tree, |_m, captures| {
-        let url_cap = find_capture(captures, "url")
-            .or_else(|| find_capture(captures, "template_url"));
+        let url_cap =
+            find_capture(captures, "url").or_else(|| find_capture(captures, "template_url"));
 
         if let Some((cap_name, url_text, line)) = url_cap {
             let is_template = cap_name == "template_url";
@@ -290,11 +286,7 @@ fn parse_api_calls(
                 is_template,
             };
 
-            store
-                .api_calls
-                .entry(normalized)
-                .or_default()
-                .push(call);
+            store.api_calls.entry(normalized).or_default().push(call);
         }
     });
 }
@@ -379,8 +371,14 @@ fn ts_stub_patterns() -> &'static [(Regex, StubType)] {
             (Regex::new(r"(?i)\bHACK\b").unwrap(), StubType::Hack),
             (Regex::new(r"(?i)\bmockData\b").unwrap(), StubType::MockData),
             (Regex::new(r"(?i)\bstubData\b").unwrap(), StubType::StubData),
-            (Regex::new(r"(?i)\bplaceholder\b").unwrap(), StubType::Placeholder),
-            (Regex::new(r"(?i)\bhardcoded\b").unwrap(), StubType::Hardcoded),
+            (
+                Regex::new(r"(?i)\bplaceholder\b").unwrap(),
+                StubType::Placeholder,
+            ),
+            (
+                Regex::new(r"(?i)\bhardcoded\b").unwrap(),
+                StubType::Hardcoded,
+            ),
             (Regex::new(r"(?i)\bfakeData\b").unwrap(), StubType::Fake),
             (Regex::new(r"(?i)\bdummyData\b").unwrap(), StubType::Dummy),
         ]
@@ -465,16 +463,12 @@ fn ts_redis_read_re() -> &'static Regex {
 
 fn ts_redis_delete_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r#"redis\.\s*(del|hdel)\s*\(\s*[`"']([^`"']+)[`"']"#).unwrap()
-    })
+    RE.get_or_init(|| Regex::new(r#"redis\.\s*(del|hdel)\s*\(\s*[`"']([^`"']+)[`"']"#).unwrap())
 }
 
 fn ts_redis_ttl_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r#"(?i)['"](?:EX|PX|EXAT|PXAT)['"]|,\s*\d+\s*\)"#).unwrap()
-    })
+    RE.get_or_init(|| Regex::new(r#"(?i)['"](?:EX|PX|EXAT|PXAT)['"]|,\s*\d+\s*\)"#).unwrap())
 }
 
 fn ts_hardcoded_cred_re() -> &'static Regex {
@@ -512,7 +506,11 @@ fn scan_db_writes_ts(path: &Path, source: &[u8], store: &IndexStore) {
                     file: path.to_path_buf(),
                     line: line_num + 1,
                 };
-                store.db_write_refs.entry(table_name).or_default().push(entry);
+                store
+                    .db_write_refs
+                    .entry(table_name)
+                    .or_default()
+                    .push(entry);
             }
         }
     }
@@ -637,7 +635,8 @@ fn ts_sql_query_re() -> &'static Regex {
 fn ts_tenant_filter_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r#"(?i)\bWHERE\b[\s\S]*?\b(user_id|owner_id|tenant_id|project_id|org_id)\b"#).unwrap()
+        Regex::new(r#"(?i)\bWHERE\b[\s\S]*?\b(user_id|owner_id|tenant_id|project_id|org_id)\b"#)
+            .unwrap()
     })
 }
 
@@ -661,10 +660,7 @@ fn scan_rls_context_ts(path: &Path, source: &[u8], store: &IndexStore) {
 
     for (line_num, line_text) in source_str.lines().enumerate() {
         for cap in re.captures_iter(line_text) {
-            let var = cap
-                .get(1)
-                .or_else(|| cap.get(2))
-                .or_else(|| cap.get(3));
+            let var = cap.get(1).or_else(|| cap.get(2)).or_else(|| cap.get(3));
             if let Some(var_match) = var {
                 let entry = RlsContextRef {
                     session_var: var_match.as_str().to_string(),
@@ -714,7 +710,11 @@ fn scan_sql_query_refs_ts(path: &Path, source: &[u8], store: &IndexStore) {
                     file: path.to_path_buf(),
                     line: line_num + 1,
                 };
-                store.sql_query_refs.entry(table_name).or_default().push(entry);
+                store
+                    .sql_query_refs
+                    .entry(table_name)
+                    .or_default()
+                    .push(entry);
             }
         }
     }
@@ -743,7 +743,10 @@ fn ts_db_pool_re() -> &'static [(Regex, &'static str)] {
 fn ts_db_pool_var_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r#"(?:const|let|var)\s+(\w+)\s*=\s*(?:new\s+Pool|new\s+PrismaClient|createPool)"#).unwrap()
+        Regex::new(
+            r#"(?:const|let|var)\s+(\w+)\s*=\s*(?:new\s+Pool|new\s+PrismaClient|createPool)"#,
+        )
+        .unwrap()
     })
 }
 
@@ -800,7 +803,11 @@ fn scan_db_pool_refs_ts(path: &Path, source: &[u8], store: &IndexStore) {
     }
 
     if !refs.is_empty() {
-        store.db_pool_refs.entry(path.to_path_buf()).or_default().extend(refs);
+        store
+            .db_pool_refs
+            .entry(path.to_path_buf())
+            .or_default()
+            .extend(refs);
     }
 }
 
@@ -814,7 +821,8 @@ fn ts_secondary_auth_call_re() -> &'static Regex {
 fn ts_secondary_auth_param_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"(?i)\b(otp|totp|verification_?code|csrf_?token|two_?factor_?code|mfa_?code)\b").unwrap()
+        Regex::new(r"(?i)\b(otp|totp|verification_?code|csrf_?token|two_?factor_?code|mfa_?code)\b")
+            .unwrap()
     })
 }
 
@@ -861,9 +869,7 @@ fn scan_secondary_auth_ts(path: &Path, source: &[u8], store: &IndexStore) {
 
 fn ts_empty_catch_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r"catch\s*\([^)]*\)\s*\{\s*\}").unwrap()
-    })
+    RE.get_or_init(|| Regex::new(r"catch\s*\([^)]*\)\s*\{\s*\}").unwrap())
 }
 
 fn ts_catch_noop_re() -> &'static Regex {
@@ -915,23 +921,22 @@ fn scan_error_handling_ts(path: &Path, source: &[u8], store: &IndexStore) {
 
 fn ts_role_single_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r#"(?i)\brole\s*[!=]==?\s*["']([^"']+)["']"#).unwrap()
-    })
+    RE.get_or_init(|| Regex::new(r#"(?i)\brole\s*[!=]==?\s*["']([^"']+)["']"#).unwrap())
 }
 
 fn ts_role_includes_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r#"(?i)(?:\[.*?\]\.includes\s*\(\s*role|roles?\.includes\s*\(\s*["']([^"']+)["'])"#).unwrap()
+        Regex::new(
+            r#"(?i)(?:\[.*?\]\.includes\s*\(\s*role|roles?\.includes\s*\(\s*["']([^"']+)["'])"#,
+        )
+        .unwrap()
     })
 }
 
 fn is_middleware_file(path: &Path) -> bool {
     let path_str = path.to_string_lossy().to_lowercase();
-    path_str.contains("middleware")
-        || path_str.contains("guard")
-        || path_str.contains("auth")
+    path_str.contains("middleware") || path_str.contains("guard") || path_str.contains("auth")
 }
 
 fn scan_role_checks_ts(path: &Path, source: &[u8], store: &IndexStore) {
@@ -1013,38 +1018,44 @@ fn scan_function_signatures_ts(
     language: &tree_sitter::Language,
     store: &IndexStore,
 ) {
-    run_query(TS_FUNCTIONS_QUERY, language, source, tree, |_m, captures| {
-        let name_cap = find_capture(captures, "func_name");
-        let params_cap = find_capture(captures, "params");
-        let body_cap = find_capture(captures, "body");
+    run_query(
+        TS_FUNCTIONS_QUERY,
+        language,
+        source,
+        tree,
+        |_m, captures| {
+            let name_cap = find_capture(captures, "func_name");
+            let params_cap = find_capture(captures, "params");
+            let body_cap = find_capture(captures, "body");
 
-        if let (Some((_, name, line)), Some((_, params_text, _)), Some((_, body_text, _))) =
-            (name_cap, params_cap, body_cap)
-        {
-            let params: Vec<String> = params_text
-                .trim_matches(|c| c == '(' || c == ')')
-                .split(',')
-                .map(|p| p.trim().to_string())
-                .filter(|p| !p.is_empty())
-                .collect();
+            if let (Some((_, name, line)), Some((_, params_text, _)), Some((_, body_text, _))) =
+                (name_cap, params_cap, body_cap)
+            {
+                let params: Vec<String> = params_text
+                    .trim_matches(|c| c == '(' || c == ')')
+                    .split(',')
+                    .map(|p| p.trim().to_string())
+                    .filter(|p| !p.is_empty())
+                    .collect();
 
-            let body_hash = hash_source(body_text.as_bytes());
+                let body_hash = hash_source(body_text.as_bytes());
 
-            let entry = FunctionSignature {
-                file: path.to_path_buf(),
-                line: *line,
-                name: name.clone(),
-                params,
-                body_hash,
-                service_name: None,
-            };
-            store
-                .function_signatures
-                .entry(path.to_path_buf())
-                .or_default()
-                .push(entry);
-        }
-    });
+                let entry = FunctionSignature {
+                    file: path.to_path_buf(),
+                    line: *line,
+                    name: name.clone(),
+                    params,
+                    body_hash,
+                    service_name: None,
+                };
+                store
+                    .function_signatures
+                    .entry(path.to_path_buf())
+                    .or_default()
+                    .push(entry);
+            }
+        },
+    );
 }
 
 fn ts_jwt_blacklist_re() -> &'static Regex {
@@ -1071,7 +1082,8 @@ fn ts_cookie_clear_re() -> &'static Regex {
 fn ts_session_destroy_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"(?i)(?:session\.destroy|session\.invalidate|logout.*session|session\.clear)").unwrap()
+        Regex::new(r"(?i)(?:session\.destroy|session\.invalidate|logout.*session|session\.clear)")
+            .unwrap()
     })
 }
 
@@ -1126,11 +1138,17 @@ fn classify_sensitive_log(text: &str) -> Option<SensitiveLogType> {
     let lower = text.to_lowercase();
     if lower.contains("password") || lower.contains("passwd") {
         Some(SensitiveLogType::Password)
-    } else if lower.contains("access_token") || lower.contains("refresh_token") || lower.contains("token") {
+    } else if lower.contains("access_token")
+        || lower.contains("refresh_token")
+        || lower.contains("token")
+    {
         Some(SensitiveLogType::Token)
     } else if lower.contains("secret") {
         Some(SensitiveLogType::Secret)
-    } else if lower.contains("otp") || lower.contains("verification_code") || lower.contains("verification code") {
+    } else if lower.contains("otp")
+        || lower.contains("verification_code")
+        || lower.contains("verification code")
+    {
         Some(SensitiveLogType::OtpCode)
     } else if lower.contains("api_key") || lower.contains("apikey") {
         Some(SensitiveLogType::ApiKey)
@@ -1192,7 +1210,8 @@ fn insecure_storage_bracket_re() -> &'static Regex {
 fn plain_cookie_token_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"(?i)document\.cookie\s*=.*\b(token|jwt|auth|session|access|refresh)\b").unwrap()
+        Regex::new(r"(?i)document\.cookie\s*=.*\b(token|jwt|auth|session|access|refresh)\b")
+            .unwrap()
     })
 }
 
@@ -1217,13 +1236,19 @@ fn scan_insecure_storage_ts(path: &Path, source: &[u8], store: &IndexStore) {
             .captures(line_text)
             .map(|cap| {
                 let name = cap.get(1).map(|m| m.as_str()).unwrap_or("");
-                let key = cap.get(3).map(|m| m.as_str().to_string()).unwrap_or_default();
+                let key = cap
+                    .get(3)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default();
                 (name.to_string(), key)
             })
             .or_else(|| {
                 bracket_re.captures(line_text).map(|cap| {
                     let name = cap.get(1).map(|m| m.as_str()).unwrap_or("");
-                    let key = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+                    let key = cap
+                        .get(2)
+                        .map(|m| m.as_str().to_string())
+                        .unwrap_or_default();
                     (name.to_string(), key)
                 })
             });
@@ -1269,9 +1294,7 @@ fn scan_insecure_storage_ts(path: &Path, source: &[u8], store: &IndexStore) {
 
 fn rate_limit_decorator_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r"(?i)@(Throttle|RateLimit|UseGuards\s*\(.*throttle)").unwrap()
-    })
+    RE.get_or_init(|| Regex::new(r"(?i)@(Throttle|RateLimit|UseGuards\s*\(.*throttle)").unwrap())
 }
 
 fn rate_limit_middleware_re() -> &'static Regex {
@@ -1339,9 +1362,7 @@ fn audit_log_re() -> &'static Regex {
 
 fn audit_event_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r#"(?i)['"](\w+\.\w+\.\w+)['"]\s*[,)]"#).unwrap()
-    })
+    RE.get_or_init(|| Regex::new(r#"(?i)['"](\w+\.\w+\.\w+)['"]\s*[,)]"#).unwrap())
 }
 
 fn scan_audit_log_ts(path: &Path, source: &[u8], store: &IndexStore) {
@@ -1386,14 +1407,18 @@ fn scan_audit_log_ts(path: &Path, source: &[u8], store: &IndexStore) {
 fn test_bypass_phone_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r#"(?i)(if|switch|case|\?)\s*.*?(phone|mobile|tel)\s*===?\s*['"]\+?(\d{7,15})['"]"#).unwrap()
+        Regex::new(
+            r#"(?i)(if|switch|case|\?)\s*.*?(phone|mobile|tel)\s*===?\s*['"]\+?(\d{7,15})['"]"#,
+        )
+        .unwrap()
     })
 }
 
 fn test_bypass_email_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r#"(?i)(email|mail)\s*===?\s*['"](test@|admin@|demo@|debug@)[^'"]*['"]\s*\)"#).unwrap()
+        Regex::new(r#"(?i)(email|mail)\s*===?\s*['"](test@|admin@|demo@|debug@)[^'"]*['"]\s*\)"#)
+            .unwrap()
     })
 }
 
@@ -1437,15 +1462,36 @@ fn scan_test_bypass_ts(path: &Path, source: &[u8], store: &IndexStore) {
         }
 
         let bypass = if let Some(cap) = phone_re.captures(line_text) {
-            Some((TestBypassType::HardcodedPhone, cap.get(3).map(|m| m.as_str().to_string()).unwrap_or_default()))
+            Some((
+                TestBypassType::HardcodedPhone,
+                cap.get(3)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default(),
+            ))
         } else if let Some(cap) = email_re.captures(line_text) {
-            Some((TestBypassType::HardcodedEmail, cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default()))
+            Some((
+                TestBypassType::HardcodedEmail,
+                cap.get(2)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default(),
+            ))
         } else if let Some(cap) = pwd_re.captures(line_text) {
-            Some((TestBypassType::MasterPassword, cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default()))
+            Some((
+                TestBypassType::MasterPassword,
+                cap.get(2)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default(),
+            ))
         } else if debug_re.is_match(line_text) {
-            Some((TestBypassType::DebugFlag, trimmed.chars().take(80).collect()))
+            Some((
+                TestBypassType::DebugFlag,
+                trimmed.chars().take(80).collect(),
+            ))
         } else if env_re.is_match(line_text) {
-            Some((TestBypassType::EnvCheckBug, trimmed.chars().take(80).collect()))
+            Some((
+                TestBypassType::EnvCheckBug,
+                trimmed.chars().take(80).collect(),
+            ))
         } else {
             None
         };
@@ -1473,7 +1519,10 @@ fn scan_test_bypass_ts(path: &Path, source: &[u8], store: &IndexStore) {
 fn token_refresh_endpoint_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r#"(?i)(refresh.?token|token.?refresh|/auth/refresh|/token/refresh|refreshToken)"#).unwrap()
+        Regex::new(
+            r#"(?i)(refresh.?token|token.?refresh|/auth/refresh|/token/refresh|refreshToken)"#,
+        )
+        .unwrap()
     })
 }
 
@@ -1512,7 +1561,11 @@ fn scan_token_refresh_ts(path: &Path, source: &[u8], store: &IndexStore) {
         if refresh_re.is_match(line_text) {
             // Check if any revocation call is within proximity of this refresh endpoint
             let has_nearby_revocation = revocation_lines.iter().any(|&rl| {
-                let diff = if rl > line_num { rl - line_num } else { line_num - rl };
+                let diff = if rl > line_num {
+                    rl - line_num
+                } else {
+                    line_num - rl
+                };
                 diff <= PROXIMITY
             });
 
@@ -1545,7 +1598,8 @@ fn transaction_re() -> &'static Regex {
 fn on_conflict_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r#"(?i)(ON\s+CONFLICT|INSERT\s+.*OR\s+REPLACE|UPSERT|onConflict|orReplace)"#).unwrap()
+        Regex::new(r#"(?i)(ON\s+CONFLICT|INSERT\s+.*OR\s+REPLACE|UPSERT|onConflict|orReplace)"#)
+            .unwrap()
     })
 }
 
@@ -1684,7 +1738,10 @@ mod tests {
         let path = fixture_path("imports.ts");
         let imports = store.imports_for_file(&path);
         let path_import = imports.iter().find(|i| i.target_module == "path");
-        assert!(path_import.is_some(), "Should find namespace import for path");
+        assert!(
+            path_import.is_some(),
+            "Should find namespace import for path"
+        );
     }
 
     #[test]
@@ -1693,9 +1750,7 @@ mod tests {
         let calls = store.all_api_calls();
         assert!(!calls.is_empty(), "Should extract API calls");
 
-        let fetch_users = calls
-            .iter()
-            .find(|c| c.url.contains("/api/users"));
+        let fetch_users = calls.iter().find(|c| c.url.contains("/api/users"));
         assert!(fetch_users.is_some(), "Should find fetch /api/users call");
     }
 
@@ -1745,9 +1800,7 @@ mod tests {
             .unwrap_or_default();
         assert!(!scopes.is_empty(), "Should extract middleware scopes");
 
-        let auth = scopes
-            .iter()
-            .find(|s| s.middleware_name.contains("auth"));
+        let auth = scopes.iter().find(|s| s.middleware_name.contains("auth"));
         assert!(auth.is_some(), "Should find auth middleware");
     }
 
@@ -1773,9 +1826,18 @@ mod tests {
     fn detects_db_writes() {
         let store = parse_fixture("data_isolation.ts");
         let writes = store.all_db_write_refs();
-        let inserts: Vec<_> = writes.iter().filter(|w| w.operation == DbWriteOp::Insert).collect();
-        let updates: Vec<_> = writes.iter().filter(|w| w.operation == DbWriteOp::Update).collect();
-        let deletes: Vec<_> = writes.iter().filter(|w| w.operation == DbWriteOp::Delete).collect();
+        let inserts: Vec<_> = writes
+            .iter()
+            .filter(|w| w.operation == DbWriteOp::Insert)
+            .collect();
+        let updates: Vec<_> = writes
+            .iter()
+            .filter(|w| w.operation == DbWriteOp::Update)
+            .collect();
+        let deletes: Vec<_> = writes
+            .iter()
+            .filter(|w| w.operation == DbWriteOp::Delete)
+            .collect();
         assert!(!inserts.is_empty(), "Should detect INSERT");
         assert!(!updates.is_empty(), "Should detect UPDATE");
         assert!(!deletes.is_empty(), "Should detect DELETE");
@@ -1785,8 +1847,14 @@ mod tests {
     fn detects_redis_patterns() {
         let store = parse_fixture("data_isolation.ts");
         let refs = store.all_redis_key_refs();
-        let writes: Vec<_> = refs.iter().filter(|r| r.operation == RedisOp::Write).collect();
-        let reads: Vec<_> = refs.iter().filter(|r| r.operation == RedisOp::Read).collect();
+        let writes: Vec<_> = refs
+            .iter()
+            .filter(|r| r.operation == RedisOp::Write)
+            .collect();
+        let reads: Vec<_> = refs
+            .iter()
+            .filter(|r| r.operation == RedisOp::Read)
+            .collect();
         assert!(!writes.is_empty(), "Should detect Redis writes");
         assert!(!reads.is_empty(), "Should detect Redis reads");
     }
@@ -1802,7 +1870,9 @@ mod tests {
         );
         // Should NOT flag env var references
         assert!(
-            !creds.iter().any(|c| c.key_name.to_lowercase() == "jwt_token"),
+            !creds
+                .iter()
+                .any(|c| c.key_name.to_lowercase() == "jwt_token"),
             "Should not flag env var references"
         );
     }
@@ -1813,14 +1883,20 @@ mod tests {
         let refs = store.all_sql_query_refs();
         assert!(!refs.is_empty(), "Should detect SQL query references");
         let without_tenant: Vec<_> = refs.iter().filter(|r| !r.has_tenant_filter).collect();
-        assert!(!without_tenant.is_empty(), "Should find queries without tenant filter");
+        assert!(
+            !without_tenant.is_empty(),
+            "Should find queries without tenant filter"
+        );
     }
 
     #[test]
     fn detects_ts_rls_context() {
         let store = parse_fixture("data_isolation.ts");
         let refs = store.all_rls_context_refs();
-        assert!(!refs.is_empty(), "Should detect SET LOCAL / set_config calls");
+        assert!(
+            !refs.is_empty(),
+            "Should detect SET LOCAL / set_config calls"
+        );
         assert!(
             refs.iter()
                 .any(|r| r.session_var.contains("app.current_user_id")),

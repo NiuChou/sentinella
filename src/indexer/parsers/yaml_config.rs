@@ -30,19 +30,13 @@ impl LanguageParser for YamlConfigParser {
         let docs: Vec<serde_yaml::Value> = match parse_yaml_docs(source_str) {
             Ok(docs) => docs,
             Err(e) => {
-                eprintln!(
-                    "Warning: failed to parse YAML {}: {e}",
-                    path.display()
-                );
+                eprintln!("Warning: failed to parse YAML {}: {e}", path.display());
                 return Ok(());
             }
         };
 
         for doc in &docs {
-            let kind = doc
-                .get("kind")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let kind = doc.get("kind").and_then(|v| v.as_str()).unwrap_or("");
 
             match kind {
                 "ConfigMap" => parse_k8s_configmap(path, doc, store),
@@ -132,9 +126,7 @@ fn parse_k8s_secret(path: &Path, doc: &serde_yaml::Value, store: &IndexStore) {
 
 fn env_file_kv_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r#"^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)"#).unwrap()
-    })
+    RE.get_or_init(|| Regex::new(r#"^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)"#).unwrap())
 }
 
 /// Parse a referenced env file (relative to the YAML file) and register its vars.
@@ -163,11 +155,7 @@ fn parse_referenced_env_file(yaml_path: &Path, env_path_str: &str, store: &Index
                     source_file: env_path.clone(),
                     source_type: EnvSourceType::DotEnv,
                 };
-                store
-                    .env_configs
-                    .entry(var_name)
-                    .or_default()
-                    .push(config);
+                store.env_configs.entry(var_name).or_default().push(config);
             }
         }
     }
@@ -186,11 +174,7 @@ fn collect_env_file_paths(value: &serde_yaml::Value) -> Vec<String> {
 }
 
 /// Extract env vars from docker-compose services' `environment` and `env_file` sections.
-fn parse_docker_compose_services(
-    path: &Path,
-    services: &serde_yaml::Value,
-    store: &IndexStore,
-) {
+fn parse_docker_compose_services(path: &Path, services: &serde_yaml::Value, store: &IndexStore) {
     let services_map = match services.as_mapping() {
         Some(m) => m,
         None => return,
@@ -242,11 +226,7 @@ fn parse_docker_compose_services(
                             source_file: path.to_path_buf(),
                             source_type: EnvSourceType::DockerCompose,
                         };
-                        store
-                            .env_configs
-                            .entry(var_name)
-                            .or_default()
-                            .push(config);
+                        store.env_configs.entry(var_name).or_default().push(config);
                     }
                 }
             }
