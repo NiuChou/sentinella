@@ -10,12 +10,13 @@ use super::{
 };
 use crate::indexer::store::{normalize_api_path, IndexStore};
 use crate::indexer::types::{
-    ApiEndpoint, AuditLogRef, DbPoolRef, DbWriteOp, DbWriteRef, EnvRef, ErrorHandlingRef,
-    ErrorHandlingType, EventConsumer, EventProducer, FileInfo, Framework, FunctionSignature,
-    HardcodedCredential, HttpMethod, Language, RateLimitRef, RateLimitType, RedisKeyRef, RedisOp,
-    RlsContextRef, RoleCheckRef, RoleCheckType, SecondaryAuthRef, SecondaryAuthType,
-    SensitiveLogRef, SensitiveLogType, SessionInvalidationRef, SessionInvalidationType,
-    SqlQueryOp, SqlQueryRef, StubIndicator, StubType,
+    ApiEndpoint, AuditLogRef, ConcurrencySafetyRef, ConcurrencySafetyType, DbPoolRef, DbWriteOp,
+    DbWriteRef, EnvRef, ErrorHandlingRef, ErrorHandlingType, EventConsumer, EventProducer,
+    FileInfo, Framework, FunctionSignature, HardcodedCredential, HttpMethod, Language,
+    RateLimitRef, RateLimitType, RedisKeyRef, RedisOp, RlsContextRef, RoleCheckRef, RoleCheckType,
+    SecondaryAuthRef, SecondaryAuthType, SensitiveLogRef, SensitiveLogType,
+    SessionInvalidationRef, SessionInvalidationType, TestBypassRef, TestBypassType,
+    TokenRefreshRef, SqlQueryOp, SqlQueryRef, StubIndicator, StubType,
 };
 
 const ROUTES_QUERY: &str = include_str!("../queries/go/routes.scm");
@@ -58,6 +59,9 @@ impl LanguageParser for GoParser {
         scan_sensitive_logging_go(path, source, store);
         scan_rate_limit_go(path, source, store);
         scan_audit_log_go(path, source, store);
+        scan_test_bypass_go(path, source, store);
+        scan_token_refresh_go(path, source, store);
+        scan_concurrency_safety_go(path, source, store);
 
         Ok(())
     }
@@ -1074,6 +1078,204 @@ fn scan_audit_log_go(path: &Path, source: &[u8], store: &IndexStore) {
             };
             store
                 .audit_log_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S25: Test bypass detection (Go)
+// ---------------------------------------------------------------------------
+
+fn test_bypass_phone_go_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(phone|mobile|tel)\s*==\s*"(\d{11})""#).unwrap()
+    })
+}
+
+fn test_bypass_email_go_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(email|mail)\s*==\s*"(test@|admin@|demo@|debug@)[^"]*""#).unwrap()
+    })
+}
+
+fn test_bypass_password_go_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(password|passwd|pwd)\s*==\s*"[^"]{4,}""#).unwrap()
+    })
+}
+
+fn test_bypass_debug_go_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(r\.(Query|Header)\.(Get|Values)\s*\(\s*"(debug|bypass|skip-auth|x-bypass)")"#).unwrap()
+    })
+}
+
+fn scan_test_bypass_go(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let phone_re = test_bypass_phone_go_re();
+    let email_re = test_bypass_email_go_re();
+    let pwd_re = test_bypass_password_go_re();
+    let debug_re = test_bypass_debug_go_re();
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        let trimmed = line_text.trim();
+        if trimmed.starts_with("//") {
+            continue;
+        }
+
+        let bypass = if let Some(cap) = phone_re.captures(line_text) {
+            Some((TestBypassType::HardcodedPhone, cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default()))
+        } else if let Some(cap) = email_re.captures(line_text) {
+            Some((TestBypassType::HardcodedEmail, cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default()))
+        } else if pwd_re.is_match(line_text) {
+            Some((TestBypassType::MasterPassword, trimmed.chars().take(80).collect()))
+        } else if debug_re.is_match(line_text) {
+            Some((TestBypassType::DebugFlag, trimmed.chars().take(80).collect()))
+        } else {
+            None
+        };
+
+        if let Some((bypass_type, matched_value)) = bypass {
+            let entry = TestBypassRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                bypass_type,
+                matched_value,
+            };
+            store
+                .test_bypass_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S26: Token refresh detection (Go)
+// ---------------------------------------------------------------------------
+
+fn token_refresh_go_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(RefreshToken|refreshToken|/auth/refresh|/token/refresh)"#).unwrap()
+    })
+}
+
+fn token_revocation_go_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(Blacklist|Revoke|Invalidate|Delete.*Token|Remove.*Token|\.Del\s*\()"#).unwrap()
+    })
+}
+
+fn scan_token_refresh_go(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let refresh_re = token_refresh_go_re();
+    let revoke_re = token_revocation_go_re();
+
+    let has_refresh = source_str.lines().any(|l| refresh_re.is_match(l));
+    if !has_refresh {
+        return;
+    }
+
+    let has_revocation = source_str.lines().any(|l| revoke_re.is_match(l));
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        if refresh_re.is_match(line_text) {
+            let entry = TokenRefreshRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                has_old_token_revocation: has_revocation,
+            };
+            store
+                .token_refresh_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+            break;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S27: Concurrency safety detection (Go)
+// ---------------------------------------------------------------------------
+
+fn transaction_go_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(\.Begin\w*\s*\(|tx\.\w+|BEGIN\b|\.Transaction\s*\()"#).unwrap()
+    })
+}
+
+fn on_conflict_go_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(ON\s+CONFLICT|INSERT\s+.*OR\s+REPLACE|\.Clauses\s*\(\s*clause\.OnConflict)"#).unwrap()
+    })
+}
+
+fn lock_go_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(FOR\s+UPDATE|LOCK\s+TABLE|advisory_lock|sync\.Mutex|sync\.RWMutex|\.Lock\s*\()"#).unwrap()
+    })
+}
+
+fn scan_concurrency_safety_go(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let tx_re = transaction_go_re();
+    let conflict_re = on_conflict_go_re();
+    let lk_re = lock_go_re();
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        let trimmed = line_text.trim();
+        if trimmed.starts_with("//") {
+            continue;
+        }
+
+        let safety = if tx_re.is_match(line_text) {
+            Some(ConcurrencySafetyType::Transaction)
+        } else if conflict_re.is_match(line_text) {
+            Some(ConcurrencySafetyType::OnConflict)
+        } else if lk_re.is_match(line_text) {
+            if line_text.contains("sync.Mutex") || line_text.contains("sync.RWMutex") {
+                Some(ConcurrencySafetyType::Mutex)
+            } else {
+                Some(ConcurrencySafetyType::Lock)
+            }
+        } else {
+            None
+        };
+
+        if let Some(safety_type) = safety {
+            let entry = ConcurrencySafetyRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                safety_type,
+            };
+            store
+                .concurrency_safety_refs
                 .entry(path.to_path_buf())
                 .or_default()
                 .push(entry);

@@ -10,12 +10,13 @@ use super::{
 };
 use crate::indexer::store::{normalize_api_path, IndexStore};
 use crate::indexer::types::{
-    ApiEndpoint, AuditLogRef, DbPoolRef, DbWriteOp, DbWriteRef, EnvRef, ErrorHandlingRef,
-    ErrorHandlingType, EventConsumer, EventProducer, FileInfo, Framework, FunctionSignature,
-    HardcodedCredential, HttpMethod, Language, RateLimitRef, RateLimitType, RedisKeyRef, RedisOp,
-    RlsContextRef, RoleCheckRef, RoleCheckType, SecondaryAuthRef, SecondaryAuthType,
-    SensitiveLogRef, SensitiveLogType, SessionInvalidationRef, SessionInvalidationType,
-    SqlQueryOp, SqlQueryRef, StubIndicator, StubType,
+    ApiEndpoint, AuditLogRef, ConcurrencySafetyRef, ConcurrencySafetyType, DbPoolRef, DbWriteOp,
+    DbWriteRef, EnvRef, ErrorHandlingRef, ErrorHandlingType, EventConsumer, EventProducer,
+    FileInfo, Framework, FunctionSignature, HardcodedCredential, HttpMethod, Language,
+    RateLimitRef, RateLimitType, RedisKeyRef, RedisOp, RlsContextRef, RoleCheckRef, RoleCheckType,
+    SecondaryAuthRef, SecondaryAuthType, SensitiveLogRef, SensitiveLogType,
+    SessionInvalidationRef, SessionInvalidationType, TestBypassRef, TestBypassType,
+    TokenRefreshRef, SqlQueryOp, SqlQueryRef, StubIndicator, StubType,
 };
 
 const ROUTES_QUERY: &str = include_str!("../queries/python/routes.scm");
@@ -59,6 +60,9 @@ impl LanguageParser for PythonParser {
         scan_sensitive_logging_py(path, source, store);
         scan_rate_limit_py(path, source, store);
         scan_audit_log_py(path, source, store);
+        scan_test_bypass_py(path, source, store);
+        scan_token_refresh_py(path, source, store);
+        scan_concurrency_safety_py(path, source, store);
 
         Ok(())
     }
@@ -1070,6 +1074,210 @@ fn scan_audit_log_py(path: &Path, source: &[u8], store: &IndexStore) {
             };
             store
                 .audit_log_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S25: Test bypass detection (Python)
+// ---------------------------------------------------------------------------
+
+fn test_bypass_phone_py_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(phone|mobile|tel)\s*==\s*['""](\d{11})['""]"#).unwrap()
+    })
+}
+
+fn test_bypass_email_py_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(email|mail)\s*==\s*['"](test@|admin@|demo@|debug@)[^'"]*['"]\s*"#).unwrap()
+    })
+}
+
+fn test_bypass_password_py_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(password|passwd|pwd)\s*==\s*['"][^'"]{4,}['"]\s*"#).unwrap()
+    })
+}
+
+fn test_bypass_debug_py_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(request\.(args|headers)\.(get|__getitem__)\s*\(\s*['"](debug|bypass|skip.auth)['"]\)|\.get\s*\(\s*['"](X-Bypass|X-Debug)['"])"#).unwrap()
+    })
+}
+
+fn test_bypass_list_py_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(phone|email|mobile)\s+in\s+(TRIAL|TEST|DEBUG|BYPASS)_"#).unwrap()
+    })
+}
+
+fn scan_test_bypass_py(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let phone_re = test_bypass_phone_py_re();
+    let email_re = test_bypass_email_py_re();
+    let pwd_re = test_bypass_password_py_re();
+    let debug_re = test_bypass_debug_py_re();
+    let list_re = test_bypass_list_py_re();
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        let trimmed = line_text.trim();
+        if trimmed.starts_with('#') {
+            continue;
+        }
+
+        let bypass = if let Some(cap) = phone_re.captures(line_text) {
+            Some((TestBypassType::HardcodedPhone, cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default()))
+        } else if let Some(cap) = email_re.captures(line_text) {
+            Some((TestBypassType::HardcodedEmail, cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default()))
+        } else if pwd_re.is_match(line_text) {
+            Some((TestBypassType::MasterPassword, trimmed.chars().take(80).collect()))
+        } else if debug_re.is_match(line_text) {
+            Some((TestBypassType::DebugFlag, trimmed.chars().take(80).collect()))
+        } else if list_re.is_match(line_text) {
+            Some((TestBypassType::TestAccountList, trimmed.chars().take(80).collect()))
+        } else {
+            None
+        };
+
+        if let Some((bypass_type, matched_value)) = bypass {
+            let entry = TestBypassRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                bypass_type,
+                matched_value,
+            };
+            store
+                .test_bypass_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S26: Token refresh detection (Python)
+// ---------------------------------------------------------------------------
+
+fn token_refresh_py_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(refresh.?token|token.?refresh|/auth/refresh|/token/refresh)"#).unwrap()
+    })
+}
+
+fn token_revocation_py_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(blacklist|revoke|invalidate|delete.*token|remove.*token|redis.*delete)"#).unwrap()
+    })
+}
+
+fn scan_token_refresh_py(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let refresh_re = token_refresh_py_re();
+    let revoke_re = token_revocation_py_re();
+
+    let has_refresh = source_str.lines().any(|l| refresh_re.is_match(l));
+    if !has_refresh {
+        return;
+    }
+
+    let has_revocation = source_str.lines().any(|l| revoke_re.is_match(l));
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        if refresh_re.is_match(line_text) {
+            let entry = TokenRefreshRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                has_old_token_revocation: has_revocation,
+            };
+            store
+                .token_refresh_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+            break;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S27: Concurrency safety detection (Python)
+// ---------------------------------------------------------------------------
+
+fn transaction_py_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(\.begin\s*\(|session\.commit|atomic|BEGIN\b|@transaction)"#).unwrap()
+    })
+}
+
+fn on_conflict_py_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(ON\s+CONFLICT|on_conflict|INSERT\s+.*OR\s+REPLACE|merge\s*\()"#).unwrap()
+    })
+}
+
+fn lock_py_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(FOR\s+UPDATE|LOCK\s+TABLE|advisory_lock|select_for_update|Lock\s*\(|asyncio\.Lock)"#).unwrap()
+    })
+}
+
+fn scan_concurrency_safety_py(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let tx_re = transaction_py_re();
+    let conflict_re = on_conflict_py_re();
+    let lk_re = lock_py_re();
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        let trimmed = line_text.trim();
+        if trimmed.starts_with('#') {
+            continue;
+        }
+
+        let safety = if tx_re.is_match(line_text) {
+            Some(ConcurrencySafetyType::Transaction)
+        } else if conflict_re.is_match(line_text) {
+            Some(ConcurrencySafetyType::OnConflict)
+        } else if lk_re.is_match(line_text) {
+            Some(ConcurrencySafetyType::Lock)
+        } else {
+            None
+        };
+
+        if let Some(safety_type) = safety {
+            let entry = ConcurrencySafetyRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                safety_type,
+            };
+            store
+                .concurrency_safety_refs
                 .entry(path.to_path_buf())
                 .or_default()
                 .push(entry);

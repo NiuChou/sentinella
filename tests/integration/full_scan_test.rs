@@ -137,6 +137,7 @@ fn scanner_results_have_valid_scanner_ids() {
     let valid_ids = [
         "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11", "S12",
         "S13", "S14", "S15", "S16", "S17", "S18", "S19", "S20", "S21", "S22", "S23", "S24",
+        "S25", "S26", "S27",
     ];
 
     for result in &results {
@@ -165,8 +166,8 @@ fn all_twelve_scanners_produce_results() {
     let results = run_scanners(&scanners, &ctx);
     assert_eq!(
         results.len(),
-        24,
-        "All 24 scanners should produce results, got {}",
+        27,
+        "All 27 scanners should produce results, got {}",
         results.len()
     );
 }

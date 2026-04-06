@@ -482,3 +482,47 @@ pub struct ColumnLookupRef {
     pub file: PathBuf,
     pub line: usize,
 }
+
+/// S25: Test bypass reference in auth paths.
+#[derive(Debug, Clone)]
+pub struct TestBypassRef {
+    pub file: PathBuf,
+    pub line: usize,
+    pub bypass_type: TestBypassType,
+    pub matched_value: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TestBypassType {
+    HardcodedPhone,
+    HardcodedEmail,
+    MasterPassword,
+    DebugFlag,
+    EnvCheckBug,
+    TestAccountList,
+}
+
+/// S26: Token refresh endpoint reference.
+#[derive(Debug, Clone)]
+pub struct TokenRefreshRef {
+    pub file: PathBuf,
+    pub line: usize,
+    pub has_old_token_revocation: bool,
+}
+
+/// S27: Concurrency safety reference.
+#[derive(Debug, Clone)]
+pub struct ConcurrencySafetyRef {
+    pub file: PathBuf,
+    pub line: usize,
+    pub safety_type: ConcurrencySafetyType,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConcurrencySafetyType {
+    Transaction,
+    Lock,
+    OnConflict,
+    Mutex,
+    Advisory,
+}

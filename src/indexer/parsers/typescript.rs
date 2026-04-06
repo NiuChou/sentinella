@@ -10,12 +10,13 @@ use super::{
 };
 use crate::indexer::store::{normalize_api_path, IndexStore};
 use crate::indexer::types::{
-    ApiCall, ApiEndpoint, AuditLogRef, DbPoolRef, DbWriteOp, DbWriteRef, ErrorHandlingRef,
-    ErrorHandlingType, FileInfo, Framework, FunctionSignature, HardcodedCredential, HttpMethod,
-    ImportEdge, InsecureStorageRef, InsecureStorageType, Language, MiddlewareScope, RateLimitRef,
-    RateLimitType, RedisKeyRef, RedisOp, RlsContextRef, RoleCheckRef, RoleCheckType,
-    SecondaryAuthRef, SecondaryAuthType, SensitiveLogRef, SensitiveLogType,
-    SessionInvalidationRef, SessionInvalidationType, EnvRef, SqlQueryOp, SqlQueryRef,
+    ApiCall, ApiEndpoint, AuditLogRef, ConcurrencySafetyRef, ConcurrencySafetyType, DbPoolRef,
+    DbWriteOp, DbWriteRef, ErrorHandlingRef, ErrorHandlingType, FileInfo, Framework,
+    FunctionSignature, HardcodedCredential, HttpMethod, ImportEdge, InsecureStorageRef,
+    InsecureStorageType, Language, MiddlewareScope, RateLimitRef, RateLimitType, RedisKeyRef,
+    RedisOp, RlsContextRef, RoleCheckRef, RoleCheckType, SecondaryAuthRef, SecondaryAuthType,
+    SensitiveLogRef, SensitiveLogType, SessionInvalidationRef, SessionInvalidationType,
+    TestBypassRef, TestBypassType, TokenRefreshRef, EnvRef, SqlQueryOp, SqlQueryRef,
     StubIndicator, StubType,
 };
 
@@ -77,6 +78,9 @@ impl LanguageParser for TypeScriptParser {
         scan_insecure_storage_ts(path, source, store);
         scan_rate_limit_ts(path, source, store);
         scan_audit_log_ts(path, source, store);
+        scan_test_bypass_ts(path, source, store);
+        scan_token_refresh_ts(path, source, store);
+        scan_concurrency_safety_ts(path, source, store);
 
         Ok(())
     }
@@ -1346,6 +1350,210 @@ fn scan_audit_log_ts(path: &Path, source: &[u8], store: &IndexStore) {
             };
             store
                 .audit_log_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S25: Test bypass detection in auth paths
+// ---------------------------------------------------------------------------
+
+fn test_bypass_phone_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(phone|mobile|tel)\s*===?\s*['"](\d{11})['"]\s*\)"#).unwrap()
+    })
+}
+
+fn test_bypass_email_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(email|mail)\s*===?\s*['"](test@|admin@|demo@|debug@)[^'"]*['"]\s*\)"#).unwrap()
+    })
+}
+
+fn test_bypass_password_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(password|passwd|pwd)\s*===?\s*['"][^'"]{4,}['"]\s*\)"#).unwrap()
+    })
+}
+
+fn test_bypass_debug_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(req\.(query|headers)\[?['"](debug|bypass|x-bypass|skip-auth)['"]\]?|\.debug\s*===?\s*['"]true['"])"#).unwrap()
+    })
+}
+
+fn test_bypass_env_bug_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)process\.env\.\w+\s*!==?\s*['"](production|prod)['"]"#).unwrap()
+    })
+}
+
+fn scan_test_bypass_ts(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let phone_re = test_bypass_phone_re();
+    let email_re = test_bypass_email_re();
+    let pwd_re = test_bypass_password_re();
+    let debug_re = test_bypass_debug_re();
+    let env_re = test_bypass_env_bug_re();
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        let trimmed = line_text.trim();
+        if trimmed.starts_with("//") || trimmed.starts_with('*') {
+            continue;
+        }
+
+        let bypass = if let Some(cap) = phone_re.captures(line_text) {
+            Some((TestBypassType::HardcodedPhone, cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default()))
+        } else if let Some(cap) = email_re.captures(line_text) {
+            Some((TestBypassType::HardcodedEmail, cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default()))
+        } else if let Some(cap) = pwd_re.captures(line_text) {
+            Some((TestBypassType::MasterPassword, cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default()))
+        } else if debug_re.is_match(line_text) {
+            Some((TestBypassType::DebugFlag, trimmed.chars().take(80).collect()))
+        } else if env_re.is_match(line_text) {
+            Some((TestBypassType::EnvCheckBug, trimmed.chars().take(80).collect()))
+        } else {
+            None
+        };
+
+        if let Some((bypass_type, matched_value)) = bypass {
+            let entry = TestBypassRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                bypass_type,
+                matched_value,
+            };
+            store
+                .test_bypass_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S26: Token refresh endpoint detection
+// ---------------------------------------------------------------------------
+
+fn token_refresh_endpoint_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(refresh.?token|token.?refresh|/auth/refresh|/token/refresh|refreshToken)"#).unwrap()
+    })
+}
+
+fn token_revocation_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(blacklist|revoke|invalidate|delete.*token|remove.*token|token.*delete|token.*remove|redis\.del)"#).unwrap()
+    })
+}
+
+fn scan_token_refresh_ts(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let refresh_re = token_refresh_endpoint_re();
+    let revoke_re = token_revocation_re();
+
+    let has_refresh = source_str.lines().any(|l| refresh_re.is_match(l));
+    if !has_refresh {
+        return;
+    }
+
+    let has_revocation = source_str.lines().any(|l| revoke_re.is_match(l));
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        if refresh_re.is_match(line_text) {
+            let entry = TokenRefreshRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                has_old_token_revocation: has_revocation,
+            };
+            store
+                .token_refresh_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+            break; // one entry per file
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S27: Concurrency safety detection
+// ---------------------------------------------------------------------------
+
+fn transaction_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(\.transaction\s*\(|BEGIN\s|START\s+TRANSACTION|serializable|\.startTransaction)"#).unwrap()
+    })
+}
+
+fn on_conflict_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(ON\s+CONFLICT|INSERT\s+.*OR\s+REPLACE|UPSERT|onConflict|orReplace)"#).unwrap()
+    })
+}
+
+fn lock_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(FOR\s+UPDATE|LOCK\s+TABLE|advisory_lock|pg_advisory|\.lock\s*\(|mutex|Mutex|SELECT\s+.*FOR\s+UPDATE)"#).unwrap()
+    })
+}
+
+fn scan_concurrency_safety_ts(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let tx_re = transaction_re();
+    let conflict_re = on_conflict_re();
+    let lk_re = lock_re();
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        let trimmed = line_text.trim();
+        if trimmed.starts_with("//") || trimmed.starts_with('*') {
+            continue;
+        }
+
+        let safety = if tx_re.is_match(line_text) {
+            Some(ConcurrencySafetyType::Transaction)
+        } else if conflict_re.is_match(line_text) {
+            Some(ConcurrencySafetyType::OnConflict)
+        } else if lk_re.is_match(line_text) {
+            Some(ConcurrencySafetyType::Lock)
+        } else {
+            None
+        };
+
+        if let Some(safety_type) = safety {
+            let entry = ConcurrencySafetyRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                safety_type,
+            };
+            store
+                .concurrency_safety_refs
                 .entry(path.to_path_buf())
                 .or_default()
                 .push(entry);

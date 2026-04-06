@@ -41,6 +41,9 @@ pub struct IndexStore {
     pub audit_log_refs: DashMap<PathBuf, Vec<AuditLogRef>>,
     pub unique_constraint_refs: DashMap<String, Vec<UniqueConstraintRef>>,
     pub column_lookup_refs: DashMap<String, Vec<ColumnLookupRef>>,
+    pub test_bypass_refs: DashMap<PathBuf, Vec<TestBypassRef>>,
+    pub token_refresh_refs: DashMap<PathBuf, Vec<TokenRefreshRef>>,
+    pub concurrency_safety_refs: DashMap<PathBuf, Vec<ConcurrencySafetyRef>>,
 }
 
 impl IndexStore {
@@ -295,6 +298,27 @@ impl IndexStore {
 
     pub fn all_column_lookup_refs(&self) -> Vec<ColumnLookupRef> {
         self.column_lookup_refs
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_test_bypass_refs(&self) -> Vec<TestBypassRef> {
+        self.test_bypass_refs
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_token_refresh_refs(&self) -> Vec<TokenRefreshRef> {
+        self.token_refresh_refs
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_concurrency_safety_refs(&self) -> Vec<ConcurrencySafetyRef> {
+        self.concurrency_safety_refs
             .iter()
             .flat_map(|entry| entry.value().clone())
             .collect()
