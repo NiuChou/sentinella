@@ -18,7 +18,7 @@ Sentinella is a static analysis tool that scans your entire project — backend,
 
 ### Key Capabilities
 
-- **12 specialized scanners** covering stubs, security, deployment, API contracts, events, env vars, data isolation, and more
+- **27 specialized scanners** covering stubs, security, deployment, API contracts, events, env vars, data isolation, auth security, and more
 - **Tree-sitter AST parsing** for TypeScript, Python, and Go — no regex guessing
 - **Cross-layer tracing** from database to API to frontend page
 - **5-layer parallel execution** using Rayon for maximum performance
@@ -31,7 +31,7 @@ Sentinella is a static analysis tool that scans your entire project — backend,
 
 ```bash
 # Clone the repository
-git clone https://github.com/sentinella-cli/sentinella.git
+git clone https://github.com/NiuChou/sentinella.git
 cd sentinella
 
 # Build release binary
@@ -115,7 +115,7 @@ Generate task breakdowns and dispatch them.
 
 ## Scanners
 
-Sentinella includes 12 scanners organized into 5 execution layers:
+Sentinella includes 27 scanners organized into 5 execution layers:
 
 ### Layer 1 — Base Detection
 
@@ -123,6 +123,9 @@ Sentinella includes 12 scanners organized into 5 execution layers:
 |----|---------|-----------------|
 | **S1** | Stub Detector | Frontend pages/hooks that use hardcoded data instead of real API connections |
 | **S6** | Residue Finder | TODO, FIXME, HACK, mock data, and placeholder residue across the codebase |
+| **S17** | Silent Error Swallowing | Empty catch blocks, ignored Promise rejections, swallowed exceptions |
+| **S20** | Sensitive Data Logging | Passwords, tokens, secrets, OTP codes logged in console/logger calls |
+| **S25** | Test Bypass Detection | Hardcoded test accounts, master passwords, debug flags bypassing auth flows |
 
 ### Layer 2 — Core Tracing
 
@@ -140,6 +143,15 @@ Sentinella includes 12 scanners organized into 5 execution layers:
 | **S7** | Security Completeness | API endpoints not protected by auth middleware (auth, guard, jwt, session) |
 | **S8** | Integration Test Coverage | Database tables without integration tests covering read/write/assert |
 | **S12** | Data Isolation Audit | Ghost tables, inactive RLS policies, missing tenant filters, cache-only persistence, hardcoded credentials |
+| **S13** | Destructive Endpoint Safety | DELETE/dangerous endpoints lacking confirmation, soft-delete, or audit trails |
+| **S14** | Soft Delete Lifecycle | Missing soft-delete filtered queries, no reactivation path, or PII not cleared |
+| **S16** | Role Hardcoding | Hardcoded role strings instead of using centralized role constants or enums |
+| **S18** | Token Invalidation | State-changing operations (logout, suspend, delete) without token/session invalidation |
+| **S19** | OTP Replay Protection | OTP verification endpoints lacking replay protection or rate limiting |
+| **S21** | Insecure Token Storage | Auth tokens stored in localStorage/sessionStorage instead of httpOnly cookies |
+| **S22** | Rate Limiting Coverage | Authentication endpoints missing rate limiting protection (brute-force risk) |
+| **S26** | Refresh Token Rotation | Refresh token endpoints that issue new tokens without revoking old ones |
+| **S27** | Race Condition Safety | Auth-path database writes (INSERT/UPSERT) without concurrency protection |
 
 ### Layer 4 — Drift Detection
 
@@ -147,6 +159,9 @@ Sentinella includes 12 scanners organized into 5 execution layers:
 |----|---------|-----------------|
 | **S10** | Event Schema Drift | Event topics produced but never consumed (or vice versa) |
 | **S11** | Env Config Drift | Environment variables referenced in code but missing from deploy configs |
+| **S15** | Cross-Service Duplication | Duplicate business logic across services in monorepo projects |
+| **S23** | Audit Log Completeness | State-changing operations (login, DELETE, PUT, PATCH) without audit log calls |
+| **S24** | Missing Uniqueness | SQL WHERE equality lookup columns lacking UNIQUE constraints |
 
 ### Layer 5 — Project
 
@@ -350,7 +365,7 @@ sentinella/
 │   │       ├── typescript/      # routes, imports, api_calls, middleware, env_refs
 │   │       ├── python/          # routes, env_refs
 │   │       └── go/              # routes
-│   ├── scanners/                # 12 scanners (S1–S12)
+│   ├── scanners/                # 27 scanners (S1–S27)
 │   ├── reporters/               # Matrix table, gap report, task decomposer
 │   └── dispatchers/             # stdout, Notion API, GitHub API
 ├── templates/                   # Starter config templates
@@ -376,12 +391,13 @@ sentinella/
                                     │
                                     ▼
                     ┌───────────────────────────────┐
-                    │     5-Layer Scanner Engine     │
-                    │  L1: S1+S6  (parallel)        │
-                    │  L2: S2+S9  (parallel)        │
-                    │  L3: S3+S4+S7+S8+S12 (parallel) │
-                    │  L4: S10+S11 (parallel)       │
-                    │  L5: S5     (sequential)      │
+                    │     5-Layer Scanner Engine          │
+                    │  L1: S1+S6+S17+S20+S25 (parallel)  │
+                    │  L2: S2+S9             (parallel)  │
+                    │  L3: S3+S4+S7+S8+S12+S13+S14+S16  │
+                    │      +S18+S19+S21+S22+S26+S27      │
+                    │  L4: S10+S11+S15+S23+S24 (parallel)│
+                    │  L5: S5                (sequential)│
                     └───────────────┬───────────────┘
                                     │
                               ScanResult[]
@@ -510,7 +526,7 @@ Sentinella 是一个静态分析工具，扫描你的整个项目 — 后端、B
 
 ### 核心能力
 
-- **12 个专业扫描器**，覆盖桩代码、安全性、部署就绪、API 契约、事件、环境变量、数据隔离等
+- **27 个专业扫描器**，覆盖桩代码、安全性、部署就绪、API 契约、事件、环境变量、数据隔离、认证安全等
 - **Tree-sitter AST 解析**，支持 TypeScript、Python、Go — 精确语法分析，非正则猜测
 - **跨层追踪**，从数据库到 API 到前端页面
 - **5 层并行执行引擎**，基于 Rayon 实现最大性能
@@ -523,7 +539,7 @@ Sentinella 是一个静态分析工具，扫描你的整个项目 — 后端、B
 
 ```bash
 # 克隆仓库
-git clone https://github.com/sentinella-cli/sentinella.git
+git clone https://github.com/NiuChou/sentinella.git
 cd sentinella
 
 # 编译 release 版本
@@ -601,7 +617,7 @@ sentinella [--config <路径>] <命令>
 
 ## 扫描器详解
 
-Sentinella 包含 12 个扫描器，分为 5 个执行层：
+Sentinella 包含 27 个扫描器，分为 5 个执行层：
 
 ### 第 1 层 — 基础检测
 
@@ -609,6 +625,9 @@ Sentinella 包含 12 个扫描器，分为 5 个执行层：
 |----|--------|---------|
 | **S1** | 桩代码检测器 | 前端页面/Hooks 使用硬编码数据而非真实 API 连接 |
 | **S6** | 残留物查找器 | 全代码库的 TODO、FIXME、HACK、mock 数据、占位符 |
+| **S17** | 静默错误吞没 | 空 catch 块、忽略的 Promise 拒绝、被吞没的异常 |
+| **S20** | 敏感数据日志泄露 | 密码、Token、密钥、OTP 验证码出现在 log/console 调用中 |
+| **S25** | 测试旁路检测 | 硬编码测试账号、万能密码、debug 标志绕过认证流程 |
 
 ### 第 2 层 — 核心追踪
 
@@ -626,6 +645,15 @@ Sentinella 包含 12 个扫描器，分为 5 个执行层：
 | **S7** | 安全完整性 | API 端点缺少鉴权中间件（auth、guard、jwt、session） |
 | **S8** | 集成测试覆盖 | 数据库表缺少读/写/断言的集成测试 |
 | **S12** | 数据隔离审计 | 幽灵表、未激活 RLS 策略、缺少租户过滤、仅缓存持久化、硬编码凭证 |
+| **S13** | 破坏性端点安全 | DELETE/危险端点缺少二次确认、软删除或审计追踪 |
+| **S14** | 软删除生命周期 | 缺少软删除过滤查询、无重新激活路径、PII 未清理 |
+| **S16** | 角色硬编码 | 角色字符串硬编码而非使用集中式角色常量或枚举 |
+| **S18** | Token 失效检查 | 状态变更操作（登出、停用、删除）未失效 Token/Session |
+| **S19** | OTP 重放防护 | OTP 验证端点缺少重放保护或速率限制 |
+| **S21** | 不安全 Token 存储 | 认证 Token 存储在 localStorage/sessionStorage 而非 httpOnly Cookie |
+| **S22** | 限流覆盖率 | 认证端点缺少限流保护（暴力破解风险） |
+| **S26** | Refresh Token 轮换 | 刷新令牌端点签发新 Token 但未吊销旧 Token |
+| **S27** | 竞态条件安全 | 认证路径数据库写入（INSERT/UPSERT）缺少并发保护 |
 
 ### 第 4 层 — 漂移检测
 
@@ -633,6 +661,9 @@ Sentinella 包含 12 个扫描器，分为 5 个执行层：
 |----|--------|---------|
 | **S10** | 事件模式漂移 | 事件主题被生产但从未被消费（或反之） |
 | **S11** | 环境变量漂移 | 代码中引用的环境变量在部署配置中缺失 |
+| **S15** | 跨服务重复 | Monorepo 项目中跨服务的重复业务逻辑 |
+| **S23** | 审计日志完整性 | 状态变更操作（登录、DELETE、PUT、PATCH）缺少审计日志调用 |
+| **S24** | 缺失唯一约束 | SQL WHERE 等值查找列缺少 UNIQUE 约束 |
 
 ### 第 5 层 — 项目
 
@@ -709,6 +740,8 @@ output:
 | `output` | 输出格式与最低覆盖率 | 全部 |
 | `dispatch` | 任务派发目标配置 | — |
 
+> S13-S27 为零配置扫描器，基于代码索引自动检测，无需额外配置项。
+
 > 完整配置示例请参考 `templates/fullstack.yaml`
 
 ## 架构概览
@@ -728,12 +761,14 @@ output:
                                    │
                                    ▼
                    ┌───────────────────────────────┐
-                   │     5 层扫描执行引擎            │
-                   │  L1: S1+S6  (并行)            │
-                   │  L2: S2+S9  (并行)            │
-                   │  L3: S3+S4+S7+S8+S12 (并行)    │
-                   │  L4: S10+S11 (并行)           │
-                   │  L5: S5     (串行)            │
+                   │     5 层扫描执行引擎                │
+                   │  L1: S1+S6+S17+S20+S25 (并行)  │
+                   │  L2: S2+S9             (并行)  │
+                   │  L3: S3+S4+S7+S8+S12+S13+S14  │
+                   │      +S16+S18+S19+S21+S22      │
+                   │      +S26+S27          (并行)  │
+                   │  L4: S10+S11+S15+S23+S24(并行) │
+                   │  L5: S5               (串行)   │
                    └───────────────┬───────────────┘
                                    │
                              ScanResult[]
