@@ -5,7 +5,6 @@ use anyhow::Result;
 use regex::Regex;
 use sqlparser::ast::{
     AlterTableOperation, BinaryOperator, Expr, GrantObjects, ObjectNamePart, Statement, Value,
-    ValueWithSpan,
 };
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
@@ -13,8 +12,8 @@ use sqlparser::parser::Parser;
 use super::{count_lines, hash_source, LanguageParser};
 use crate::indexer::store::IndexStore;
 use crate::indexer::types::{
-    FileInfo, Language, RlsPolicyInfo, SoftDeleteColumn, SoftDeleteType, StatusLiteralRef,
-    TableInfo,
+    ColumnLookupRef, FileInfo, Language, RlsPolicyInfo, SoftDeleteColumn, SoftDeleteType,
+    StatusLiteralRef, TableInfo, UniqueConstraintRef,
 };
 
 pub struct SqlParser;
@@ -46,6 +45,10 @@ impl LanguageParser for SqlParser {
 
         // S14/D11: Extract soft-delete columns and status literals from AST
         extract_soft_delete_and_status(path, source_str, store);
+
+        // S24: Extract unique constraints and column lookups
+        extract_unique_constraints(path, source_str, store);
+        extract_column_lookups(path, source_str, store);
 
         Ok(())
     }
@@ -666,6 +669,229 @@ fn extract_status_literals_regex(path: &Path, source: &str, store: &IndexStore) 
                     .push(entry);
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S24: Unique constraint and column lookup extraction
+// ---------------------------------------------------------------------------
+
+fn unique_constraint_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)CREATE\s+UNIQUE\s+INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?\w+\s+ON\s+(?:(\w+)\.)?(\w+)\s*\(\s*(\w+)").unwrap()
+    })
+}
+
+fn where_eq_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(?:FROM|JOIN)\s+(?:(\w+)\.)?(\w+)\b.*WHERE\b.*\b(\w+)\s*=\s*\$").unwrap()
+    })
+}
+
+fn extract_unique_constraints(path: &Path, source: &str, store: &IndexStore) {
+    let dialect = PostgreSqlDialect {};
+    let statements = Parser::parse_sql(&dialect, source).unwrap_or_default();
+
+    // AST: look for UNIQUE in CREATE TABLE column definitions
+    for stmt in &statements {
+        if let Statement::CreateTable(ct) = stmt {
+            let (_, table_name) = extract_object_name(&ct.name);
+            for col in &ct.columns {
+                let has_unique = col.options.iter().any(|opt| {
+                    matches!(
+                        opt.option,
+                        sqlparser::ast::ColumnOption::Unique { .. }
+                    )
+                });
+                if has_unique {
+                    let line = find_line_for_text(source, &col.name.value);
+                    let entry = UniqueConstraintRef {
+                        table_name: table_name.clone(),
+                        column_name: col.name.value.clone(),
+                        file: path.to_path_buf(),
+                        line,
+                    };
+                    store
+                        .unique_constraint_refs
+                        .entry(table_name.clone())
+                        .or_default()
+                        .push(entry);
+                }
+            }
+            // Also check table constraints
+            for constraint in &ct.constraints {
+                if let sqlparser::ast::TableConstraint::Unique(unique) = constraint {
+                    for col in &unique.columns {
+                        let col_name = match &col.column.expr {
+                            Expr::Identifier(ident) => ident.value.clone(),
+                            _ => continue,
+                        };
+                        let line = find_line_for_text(source, &col_name);
+                        let entry = UniqueConstraintRef {
+                            table_name: table_name.clone(),
+                            column_name: col_name,
+                            file: path.to_path_buf(),
+                            line,
+                        };
+                        store
+                            .unique_constraint_refs
+                            .entry(table_name.clone())
+                            .or_default()
+                            .push(entry);
+                    }
+                }
+            }
+        }
+    }
+
+    // Regex fallback: CREATE UNIQUE INDEX
+    let re = unique_constraint_re();
+    for (line_num, line_text) in source.lines().enumerate() {
+        if let Some(cap) = re.captures(line_text) {
+            let table_name = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let column_name = cap.get(3).map(|m| m.as_str().to_string()).unwrap_or_default();
+            // Avoid duplicates from AST
+            let already_exists = store
+                .unique_constraint_refs
+                .get(&table_name)
+                .map(|refs| refs.iter().any(|r| r.column_name == column_name))
+                .unwrap_or(false);
+            if !already_exists {
+                let entry = UniqueConstraintRef {
+                    table_name: table_name.clone(),
+                    column_name,
+                    file: path.to_path_buf(),
+                    line: line_num + 1,
+                };
+                store
+                    .unique_constraint_refs
+                    .entry(table_name)
+                    .or_default()
+                    .push(entry);
+            }
+        }
+    }
+}
+
+fn extract_column_lookups(path: &Path, source: &str, store: &IndexStore) {
+    let dialect = PostgreSqlDialect {};
+    let statements = Parser::parse_sql(&dialect, source).unwrap_or_default();
+
+    for stmt in &statements {
+        match stmt {
+            Statement::Query(query) => {
+                extract_lookups_from_query(path, source, query, store);
+            }
+            Statement::Update(update) => {
+                if let Some(ref expr) = update.selection {
+                    extract_lookups_from_where(path, source, expr, store);
+                }
+            }
+            Statement::Delete(del) => {
+                if let Some(ref expr) = del.selection {
+                    extract_lookups_from_where(path, source, expr, store);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Regex fallback
+    let re = where_eq_re();
+    for (line_num, line_text) in source.lines().enumerate() {
+        if let Some(cap) = re.captures(line_text) {
+            let table_name = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let column_name = cap.get(3).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let already = store
+                .column_lookup_refs
+                .get(&table_name)
+                .map(|refs| refs.iter().any(|r| r.column_name == column_name && r.line == line_num + 1))
+                .unwrap_or(false);
+            if !already {
+                let entry = ColumnLookupRef {
+                    table_name: table_name.clone(),
+                    column_name,
+                    file: path.to_path_buf(),
+                    line: line_num + 1,
+                };
+                store
+                    .column_lookup_refs
+                    .entry(table_name)
+                    .or_default()
+                    .push(entry);
+            }
+        }
+    }
+}
+
+fn extract_lookups_from_query(
+    path: &Path,
+    source: &str,
+    query: &sqlparser::ast::Query,
+    store: &IndexStore,
+) {
+    if let sqlparser::ast::SetExpr::Select(ref select) = *query.body {
+        // Get table name from FROM clause
+        let table_name = select
+            .from
+            .first()
+            .map(|f| format!("{}", f.relation))
+            .unwrap_or_default()
+            .replace('"', "");
+
+        if let Some(ref selection) = select.selection {
+            extract_lookups_from_where_with_table(path, source, selection, &table_name, store);
+        }
+    }
+}
+
+fn extract_lookups_from_where(
+    path: &Path,
+    source: &str,
+    expr: &Expr,
+    store: &IndexStore,
+) {
+    extract_lookups_from_where_with_table(path, source, expr, "", store);
+}
+
+fn extract_lookups_from_where_with_table(
+    path: &Path,
+    source: &str,
+    expr: &Expr,
+    table_name: &str,
+    store: &IndexStore,
+) {
+    match expr {
+        Expr::BinaryOp { left, op, right } => {
+            if matches!(op, BinaryOperator::Eq) {
+                // Check if one side is a column and the other is a parameter/value
+                if let Expr::Identifier(ident) = left.as_ref() {
+                    let col = ident.value.to_lowercase();
+                    if !col.is_empty() && !table_name.is_empty() {
+                        let line = find_line_for_text(source, &ident.value);
+                        let entry = ColumnLookupRef {
+                            table_name: table_name.to_string(),
+                            column_name: col,
+                            file: path.to_path_buf(),
+                            line,
+                        };
+                        store
+                            .column_lookup_refs
+                            .entry(table_name.to_string())
+                            .or_default()
+                            .push(entry);
+                    }
+                }
+            }
+            extract_lookups_from_where_with_table(path, source, left, table_name, store);
+            extract_lookups_from_where_with_table(path, source, right, table_name, store);
+        }
+        Expr::Nested(inner) => {
+            extract_lookups_from_where_with_table(path, source, inner, table_name, store);
+        }
+        _ => {}
     }
 }
 

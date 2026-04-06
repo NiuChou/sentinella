@@ -10,11 +10,13 @@ use super::{
 };
 use crate::indexer::store::{normalize_api_path, IndexStore};
 use crate::indexer::types::{
-    ApiCall, ApiEndpoint, DbPoolRef, DbWriteOp, DbWriteRef, ErrorHandlingRef, ErrorHandlingType,
-    FileInfo, Framework, FunctionSignature, HardcodedCredential, HttpMethod, ImportEdge, Language,
-    MiddlewareScope, RedisKeyRef, RedisOp, RlsContextRef, RoleCheckRef, RoleCheckType,
-    SecondaryAuthRef, SecondaryAuthType, SessionInvalidationRef, SessionInvalidationType,
-    EnvRef, SqlQueryOp, SqlQueryRef, StubIndicator, StubType,
+    ApiCall, ApiEndpoint, AuditLogRef, DbPoolRef, DbWriteOp, DbWriteRef, ErrorHandlingRef,
+    ErrorHandlingType, FileInfo, Framework, FunctionSignature, HardcodedCredential, HttpMethod,
+    ImportEdge, InsecureStorageRef, InsecureStorageType, Language, MiddlewareScope, RateLimitRef,
+    RateLimitType, RedisKeyRef, RedisOp, RlsContextRef, RoleCheckRef, RoleCheckType,
+    SecondaryAuthRef, SecondaryAuthType, SensitiveLogRef, SensitiveLogType,
+    SessionInvalidationRef, SessionInvalidationType, EnvRef, SqlQueryOp, SqlQueryRef,
+    StubIndicator, StubType,
 };
 
 const ROUTES_QUERY: &str = include_str!("../queries/typescript/routes.scm");
@@ -71,6 +73,10 @@ impl LanguageParser for TypeScriptParser {
         scan_role_checks_ts(path, source, store);
         scan_function_signatures_ts(path, source, &tree, &ts_language, store);
         scan_session_invalidation_ts(path, source, store);
+        scan_sensitive_logging_ts(path, source, store);
+        scan_insecure_storage_ts(path, source, store);
+        scan_rate_limit_ts(path, source, store);
+        scan_audit_log_ts(path, source, store);
 
         Ok(())
     }
@@ -1094,6 +1100,252 @@ fn scan_session_invalidation_ts(path: &Path, source: &[u8], store: &IndexStore) 
             };
             store
                 .session_invalidation_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S20: Sensitive data logging detection
+// ---------------------------------------------------------------------------
+
+fn sensitive_log_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(console\.\w+|logger\.\w+|this\.logger\.\w+|log\.\w+)\s*\(.*\b(password|passwd|secret|token|api_?key|access_?token|refresh_?token|otp|verification_?code|credit_?card|cvv|ssn)\b").unwrap()
+    })
+}
+
+fn classify_sensitive_log(text: &str) -> Option<SensitiveLogType> {
+    let lower = text.to_lowercase();
+    if lower.contains("password") || lower.contains("passwd") {
+        Some(SensitiveLogType::Password)
+    } else if lower.contains("access_token") || lower.contains("refresh_token") || lower.contains("token") {
+        Some(SensitiveLogType::Token)
+    } else if lower.contains("secret") {
+        Some(SensitiveLogType::Secret)
+    } else if lower.contains("otp") || lower.contains("verification_code") || lower.contains("verification code") {
+        Some(SensitiveLogType::OtpCode)
+    } else if lower.contains("api_key") || lower.contains("apikey") {
+        Some(SensitiveLogType::ApiKey)
+    } else if lower.contains("credit_card") || lower.contains("cvv") || lower.contains("ssn") {
+        Some(SensitiveLogType::CreditCard)
+    } else {
+        None
+    }
+}
+
+fn scan_sensitive_logging_ts(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let re = sensitive_log_re();
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        let trimmed = line_text.trim();
+        if trimmed.starts_with("//") || trimmed.starts_with('*') {
+            continue;
+        }
+        if re.is_match(line_text) {
+            if let Some(log_type) = classify_sensitive_log(line_text) {
+                let entry = SensitiveLogRef {
+                    file: path.to_path_buf(),
+                    line: line_num + 1,
+                    log_type,
+                    matched_text: trimmed.chars().take(120).collect(),
+                };
+                store
+                    .sensitive_log_refs
+                    .entry(path.to_path_buf())
+                    .or_default()
+                    .push(entry);
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S21: Insecure token storage detection (frontend)
+// ---------------------------------------------------------------------------
+
+fn insecure_storage_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(localStorage|sessionStorage)\.(setItem|getItem)\s*\(\s*['"](.*?token.*?|.*?jwt.*?|.*?auth.*?|.*?session.*?|.*?access.*?|.*?refresh.*?)['"]\s*[,)]"#).unwrap()
+    })
+}
+
+fn plain_cookie_token_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)document\.cookie\s*=.*\b(token|jwt|auth|session|access|refresh)\b").unwrap()
+    })
+}
+
+fn scan_insecure_storage_ts(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let storage_re = insecure_storage_re();
+    let cookie_re = plain_cookie_token_re();
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        let trimmed = line_text.trim();
+        if trimmed.starts_with("//") || trimmed.starts_with('*') {
+            continue;
+        }
+
+        if let Some(cap) = storage_re.captures(line_text) {
+            let storage_name = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+            let key_name = cap.get(3).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let storage_type = if storage_name.to_lowercase().contains("localstorage") {
+                InsecureStorageType::LocalStorage
+            } else {
+                InsecureStorageType::SessionStorage
+            };
+            let entry = InsecureStorageRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                storage_type,
+                key_name,
+            };
+            store
+                .insecure_storage_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+
+        if cookie_re.is_match(line_text) {
+            let entry = InsecureStorageRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                storage_type: InsecureStorageType::PlainCookie,
+                key_name: "document.cookie".to_string(),
+            };
+            store
+                .insecure_storage_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S22: Rate limiting detection
+// ---------------------------------------------------------------------------
+
+fn rate_limit_decorator_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)@(Throttle|RateLimit|UseGuards\s*\(.*throttle)").unwrap()
+    })
+}
+
+fn rate_limit_middleware_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(rateLimit|rateLimiter|express-rate-limit|throttle|slowDown|express-slow-down|rate_limit|limiter)\s*\(").unwrap()
+    })
+}
+
+fn scan_rate_limit_ts(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let dec_re = rate_limit_decorator_re();
+    let mw_re = rate_limit_middleware_re();
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        let trimmed = line_text.trim();
+        if trimmed.starts_with("//") || trimmed.starts_with('*') {
+            continue;
+        }
+
+        if dec_re.is_match(line_text) {
+            let entry = RateLimitRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                endpoint_hint: None,
+                limit_type: RateLimitType::Decorator,
+            };
+            store
+                .rate_limit_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+
+        if mw_re.is_match(line_text) {
+            let entry = RateLimitRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                endpoint_hint: None,
+                limit_type: RateLimitType::Middleware,
+            };
+            store
+                .rate_limit_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S23: Audit log detection
+// ---------------------------------------------------------------------------
+
+fn audit_log_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(audit\w*\.\w+|auditLog|audit_log|createAuditEntry|logAudit|recordAudit|emitAudit)\s*\(").unwrap()
+    })
+}
+
+fn audit_event_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)['"](\w+\.\w+\.\w+)['"]\s*[,)]"#).unwrap()
+    })
+}
+
+fn scan_audit_log_ts(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let log_re = audit_log_re();
+    let event_re = audit_event_re();
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        let trimmed = line_text.trim();
+        if trimmed.starts_with("//") || trimmed.starts_with('*') {
+            continue;
+        }
+
+        if log_re.is_match(line_text) {
+            let event_name = event_re
+                .captures(line_text)
+                .and_then(|c| c.get(1))
+                .map(|m| m.as_str().to_string());
+
+            let entry = AuditLogRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                event_name,
+            };
+            store
+                .audit_log_refs
                 .entry(path.to_path_buf())
                 .or_default()
                 .push(entry);

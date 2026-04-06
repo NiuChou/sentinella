@@ -405,3 +405,80 @@ pub enum SessionInvalidationType {
     CookieClear,
     SessionDestroy,
 }
+
+/// S20: Sensitive data logging reference.
+#[derive(Debug, Clone)]
+pub struct SensitiveLogRef {
+    pub file: PathBuf,
+    pub line: usize,
+    pub log_type: SensitiveLogType,
+    pub matched_text: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SensitiveLogType {
+    Password,
+    Token,
+    Secret,
+    OtpCode,
+    ApiKey,
+    CreditCard,
+}
+
+/// S21: Insecure token storage reference (frontend).
+#[derive(Debug, Clone)]
+pub struct InsecureStorageRef {
+    pub file: PathBuf,
+    pub line: usize,
+    pub storage_type: InsecureStorageType,
+    pub key_name: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InsecureStorageType {
+    LocalStorage,
+    SessionStorage,
+    PlainCookie,
+}
+
+/// S22: Rate limiting reference on endpoints.
+#[derive(Debug, Clone)]
+pub struct RateLimitRef {
+    pub file: PathBuf,
+    pub line: usize,
+    pub endpoint_hint: Option<String>,
+    pub limit_type: RateLimitType,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RateLimitType {
+    Decorator,
+    Middleware,
+    Library,
+}
+
+/// S23: Audit log call reference.
+#[derive(Debug, Clone)]
+pub struct AuditLogRef {
+    pub file: PathBuf,
+    pub line: usize,
+    pub event_name: Option<String>,
+}
+
+/// S24: Column uniqueness reference from SQL.
+#[derive(Debug, Clone)]
+pub struct UniqueConstraintRef {
+    pub table_name: String,
+    pub column_name: String,
+    pub file: PathBuf,
+    pub line: usize,
+}
+
+/// S24: Column lookup (WHERE col = $1) reference.
+#[derive(Debug, Clone)]
+pub struct ColumnLookupRef {
+    pub table_name: String,
+    pub column_name: String,
+    pub file: PathBuf,
+    pub line: usize,
+}

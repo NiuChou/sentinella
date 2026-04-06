@@ -35,6 +35,12 @@ pub struct IndexStore {
     pub function_signatures: DashMap<PathBuf, Vec<FunctionSignature>>,
     pub status_literal_refs: DashMap<String, Vec<StatusLiteralRef>>,
     pub session_invalidation_refs: DashMap<PathBuf, Vec<SessionInvalidationRef>>,
+    pub sensitive_log_refs: DashMap<PathBuf, Vec<SensitiveLogRef>>,
+    pub insecure_storage_refs: DashMap<PathBuf, Vec<InsecureStorageRef>>,
+    pub rate_limit_refs: DashMap<PathBuf, Vec<RateLimitRef>>,
+    pub audit_log_refs: DashMap<PathBuf, Vec<AuditLogRef>>,
+    pub unique_constraint_refs: DashMap<String, Vec<UniqueConstraintRef>>,
+    pub column_lookup_refs: DashMap<String, Vec<ColumnLookupRef>>,
 }
 
 impl IndexStore {
@@ -247,6 +253,48 @@ impl IndexStore {
 
     pub fn all_session_invalidation_refs(&self) -> Vec<SessionInvalidationRef> {
         self.session_invalidation_refs
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_sensitive_log_refs(&self) -> Vec<SensitiveLogRef> {
+        self.sensitive_log_refs
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_insecure_storage_refs(&self) -> Vec<InsecureStorageRef> {
+        self.insecure_storage_refs
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_rate_limit_refs(&self) -> Vec<RateLimitRef> {
+        self.rate_limit_refs
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_audit_log_refs(&self) -> Vec<AuditLogRef> {
+        self.audit_log_refs
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_unique_constraint_refs(&self) -> Vec<UniqueConstraintRef> {
+        self.unique_constraint_refs
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_column_lookup_refs(&self) -> Vec<ColumnLookupRef> {
+        self.column_lookup_refs
             .iter()
             .flat_map(|entry| entry.value().clone())
             .collect()

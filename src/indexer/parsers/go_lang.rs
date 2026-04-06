@@ -10,10 +10,11 @@ use super::{
 };
 use crate::indexer::store::{normalize_api_path, IndexStore};
 use crate::indexer::types::{
-    ApiEndpoint, DbPoolRef, DbWriteOp, DbWriteRef, EnvRef, ErrorHandlingRef, ErrorHandlingType,
-    EventConsumer, EventProducer, FileInfo, Framework, FunctionSignature, HardcodedCredential,
-    HttpMethod, Language, RedisKeyRef, RedisOp, RlsContextRef, RoleCheckRef, RoleCheckType,
-    SecondaryAuthRef, SecondaryAuthType, SessionInvalidationRef, SessionInvalidationType,
+    ApiEndpoint, AuditLogRef, DbPoolRef, DbWriteOp, DbWriteRef, EnvRef, ErrorHandlingRef,
+    ErrorHandlingType, EventConsumer, EventProducer, FileInfo, Framework, FunctionSignature,
+    HardcodedCredential, HttpMethod, Language, RateLimitRef, RateLimitType, RedisKeyRef, RedisOp,
+    RlsContextRef, RoleCheckRef, RoleCheckType, SecondaryAuthRef, SecondaryAuthType,
+    SensitiveLogRef, SensitiveLogType, SessionInvalidationRef, SessionInvalidationType,
     SqlQueryOp, SqlQueryRef, StubIndicator, StubType,
 };
 
@@ -54,6 +55,9 @@ impl LanguageParser for GoParser {
         scan_role_checks_go(path, source, store);
         scan_function_signatures_go(path, source, &tree, &go_language, store);
         scan_session_invalidation_go(path, source, store);
+        scan_sensitive_logging_go(path, source, store);
+        scan_rate_limit_go(path, source, store);
+        scan_audit_log_go(path, source, store);
 
         Ok(())
     }
@@ -928,6 +932,148 @@ fn scan_session_invalidation_go(path: &Path, source: &[u8], store: &IndexStore) 
             };
             store
                 .session_invalidation_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S20: Sensitive data logging detection (Go)
+// ---------------------------------------------------------------------------
+
+fn sensitive_log_go_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(log\.\w+|logger\.\w+|fmt\.Print\w*|zap\.\w+|logrus\.\w+)\s*\(.*\b(password|passwd|secret|token|api_?key|access_?token|refresh_?token|otp|verification_?code|credit_?card|cvv|ssn)\b").unwrap()
+    })
+}
+
+fn classify_sensitive_log_go(text: &str) -> Option<SensitiveLogType> {
+    let lower = text.to_lowercase();
+    if lower.contains("password") || lower.contains("passwd") {
+        Some(SensitiveLogType::Password)
+    } else if lower.contains("access_token") || lower.contains("refresh_token") || lower.contains("token") {
+        Some(SensitiveLogType::Token)
+    } else if lower.contains("secret") {
+        Some(SensitiveLogType::Secret)
+    } else if lower.contains("otp") || lower.contains("verification_code") {
+        Some(SensitiveLogType::OtpCode)
+    } else if lower.contains("api_key") || lower.contains("apikey") {
+        Some(SensitiveLogType::ApiKey)
+    } else if lower.contains("credit_card") || lower.contains("cvv") || lower.contains("ssn") {
+        Some(SensitiveLogType::CreditCard)
+    } else {
+        None
+    }
+}
+
+fn scan_sensitive_logging_go(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let re = sensitive_log_go_re();
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        let trimmed = line_text.trim();
+        if trimmed.starts_with("//") {
+            continue;
+        }
+        if re.is_match(line_text) {
+            if let Some(log_type) = classify_sensitive_log_go(line_text) {
+                let entry = SensitiveLogRef {
+                    file: path.to_path_buf(),
+                    line: line_num + 1,
+                    log_type,
+                    matched_text: trimmed.chars().take(120).collect(),
+                };
+                store
+                    .sensitive_log_refs
+                    .entry(path.to_path_buf())
+                    .or_default()
+                    .push(entry);
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S22: Rate limiting detection (Go)
+// ---------------------------------------------------------------------------
+
+fn rate_limit_go_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(tollbooth|limiter\.New|rate\.NewLimiter|ratelimit\.|throttle\.|httprate\.|"golang.org/x/time/rate"|"github.com/didip/tollbooth"|"github.com/ulule/limiter")"#).unwrap()
+    })
+}
+
+fn scan_rate_limit_go(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let re = rate_limit_go_re();
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        let trimmed = line_text.trim();
+        if trimmed.starts_with("//") {
+            continue;
+        }
+        if re.is_match(line_text) {
+            let limit_type = if line_text.contains("import") || line_text.contains('"') {
+                RateLimitType::Library
+            } else {
+                RateLimitType::Middleware
+            };
+            let entry = RateLimitRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                endpoint_hint: None,
+                limit_type,
+            };
+            store
+                .rate_limit_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S23: Audit log detection (Go)
+// ---------------------------------------------------------------------------
+
+fn audit_log_go_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(audit\w*\.\w+|AuditLog|audit_log|CreateAuditEntry|LogAudit|RecordAudit|EmitAudit)\s*\(").unwrap()
+    })
+}
+
+fn scan_audit_log_go(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let re = audit_log_go_re();
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        let trimmed = line_text.trim();
+        if trimmed.starts_with("//") {
+            continue;
+        }
+        if re.is_match(line_text) {
+            let entry = AuditLogRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                event_name: None,
+            };
+            store
+                .audit_log_refs
                 .entry(path.to_path_buf())
                 .or_default()
                 .push(entry);

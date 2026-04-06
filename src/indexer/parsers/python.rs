@@ -10,10 +10,11 @@ use super::{
 };
 use crate::indexer::store::{normalize_api_path, IndexStore};
 use crate::indexer::types::{
-    ApiEndpoint, DbPoolRef, DbWriteOp, DbWriteRef, EnvRef, ErrorHandlingRef, ErrorHandlingType,
-    EventConsumer, EventProducer, FileInfo, Framework, FunctionSignature, HardcodedCredential,
-    HttpMethod, Language, RedisKeyRef, RedisOp, RlsContextRef, RoleCheckRef, RoleCheckType,
-    SecondaryAuthRef, SecondaryAuthType, SessionInvalidationRef, SessionInvalidationType,
+    ApiEndpoint, AuditLogRef, DbPoolRef, DbWriteOp, DbWriteRef, EnvRef, ErrorHandlingRef,
+    ErrorHandlingType, EventConsumer, EventProducer, FileInfo, Framework, FunctionSignature,
+    HardcodedCredential, HttpMethod, Language, RateLimitRef, RateLimitType, RedisKeyRef, RedisOp,
+    RlsContextRef, RoleCheckRef, RoleCheckType, SecondaryAuthRef, SecondaryAuthType,
+    SensitiveLogRef, SensitiveLogType, SessionInvalidationRef, SessionInvalidationType,
     SqlQueryOp, SqlQueryRef, StubIndicator, StubType,
 };
 
@@ -55,6 +56,9 @@ impl LanguageParser for PythonParser {
         scan_role_checks_py(path, source, store);
         scan_function_signatures_py(path, source, &tree, &py_language, store);
         scan_session_invalidation_py(path, source, store);
+        scan_sensitive_logging_py(path, source, store);
+        scan_rate_limit_py(path, source, store);
+        scan_audit_log_py(path, source, store);
 
         Ok(())
     }
@@ -922,6 +926,150 @@ fn scan_session_invalidation_py(path: &Path, source: &[u8], store: &IndexStore) 
             };
             store
                 .session_invalidation_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S20: Sensitive data logging detection (Python)
+// ---------------------------------------------------------------------------
+
+fn sensitive_log_py_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(logging\.\w+|logger\.\w+|print)\s*\(.*\b(password|passwd|secret|token|api_?key|access_?token|refresh_?token|otp|verification_?code|credit_?card|cvv|ssn)\b").unwrap()
+    })
+}
+
+fn classify_sensitive_log_py(text: &str) -> Option<SensitiveLogType> {
+    let lower = text.to_lowercase();
+    if lower.contains("password") || lower.contains("passwd") {
+        Some(SensitiveLogType::Password)
+    } else if lower.contains("access_token") || lower.contains("refresh_token") || lower.contains("token") {
+        Some(SensitiveLogType::Token)
+    } else if lower.contains("secret") {
+        Some(SensitiveLogType::Secret)
+    } else if lower.contains("otp") || lower.contains("verification_code") {
+        Some(SensitiveLogType::OtpCode)
+    } else if lower.contains("api_key") || lower.contains("apikey") {
+        Some(SensitiveLogType::ApiKey)
+    } else if lower.contains("credit_card") || lower.contains("cvv") || lower.contains("ssn") {
+        Some(SensitiveLogType::CreditCard)
+    } else {
+        None
+    }
+}
+
+fn scan_sensitive_logging_py(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let re = sensitive_log_py_re();
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        let trimmed = line_text.trim();
+        if trimmed.starts_with('#') {
+            continue;
+        }
+        if re.is_match(line_text) {
+            if let Some(log_type) = classify_sensitive_log_py(line_text) {
+                let entry = SensitiveLogRef {
+                    file: path.to_path_buf(),
+                    line: line_num + 1,
+                    log_type,
+                    matched_text: trimmed.chars().take(120).collect(),
+                };
+                store
+                    .sensitive_log_refs
+                    .entry(path.to_path_buf())
+                    .or_default()
+                    .push(entry);
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S22: Rate limiting detection (Python)
+// ---------------------------------------------------------------------------
+
+fn rate_limit_py_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(@(limiter\.limit|rate_limit|throttle|slowapi)|Depends\s*\(\s*RateLimiter|from\s+(slowapi|flask_limiter|django_ratelimit))").unwrap()
+    })
+}
+
+fn scan_rate_limit_py(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let re = rate_limit_py_re();
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        let trimmed = line_text.trim();
+        if trimmed.starts_with('#') {
+            continue;
+        }
+        if re.is_match(line_text) {
+            let limit_type = if line_text.contains('@') {
+                RateLimitType::Decorator
+            } else if line_text.contains("from") || line_text.contains("import") {
+                RateLimitType::Library
+            } else {
+                RateLimitType::Middleware
+            };
+            let entry = RateLimitRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                endpoint_hint: None,
+                limit_type,
+            };
+            store
+                .rate_limit_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S23: Audit log detection (Python)
+// ---------------------------------------------------------------------------
+
+fn audit_log_py_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(audit\w*\.\w+|audit_log|create_audit|log_audit|record_audit|emit_audit)\s*\(").unwrap()
+    })
+}
+
+fn scan_audit_log_py(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let re = audit_log_py_re();
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        let trimmed = line_text.trim();
+        if trimmed.starts_with('#') {
+            continue;
+        }
+        if re.is_match(line_text) {
+            let entry = AuditLogRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                event_name: None,
+            };
+            store
+                .audit_log_refs
                 .entry(path.to_path_buf())
                 .or_default()
                 .push(entry);

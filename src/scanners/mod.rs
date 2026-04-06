@@ -18,6 +18,11 @@ pub mod role_hardcoding;
 pub mod silent_error_swallowing;
 pub mod token_invalidation;
 pub mod otp_replay_protection;
+pub mod sensitive_data_logging;
+pub mod insecure_token_storage;
+pub mod rate_limiting_coverage;
+pub mod audit_log_completeness;
+pub mod missing_uniqueness;
 
 use rayon::prelude::*;
 
@@ -45,6 +50,11 @@ pub fn create_scanners(filter: Option<&str>) -> Vec<Box<dyn Scanner>> {
         Box::new(silent_error_swallowing::SilentErrorSwallowing),       // S17
         Box::new(token_invalidation::TokenInvalidation),                // S18
         Box::new(otp_replay_protection::OtpReplayProtection),          // S19
+        Box::new(sensitive_data_logging::SensitiveDataLogging),        // S20
+        Box::new(insecure_token_storage::InsecureTokenStorage),        // S21
+        Box::new(rate_limiting_coverage::RateLimitingCoverage),        // S22
+        Box::new(audit_log_completeness::AuditLogCompleteness),        // S23
+        Box::new(missing_uniqueness::MissingUniqueness),               // S24
     ];
 
     match filter {
@@ -59,16 +69,16 @@ pub fn create_scanners(filter: Option<&str>) -> Vec<Box<dyn Scanner>> {
 }
 
 /// 5-layer execution order with intra-layer parallelism:
-///   Layer 1 (Base):         S1 + S6 + S17
+///   Layer 1 (Base):         S1 + S6 + S17 + S20
 ///   Layer 2 (Core):         S2 + S9
-///   Layer 3 (Completeness): S3 + S4 + S7 + S13 + S16 + S8 + S12(D11) + S14 + S18 + S19
-///   Layer 4 (Drift):        S10 + S11 + S15
+///   Layer 3 (Completeness): S3 + S4 + S7 + S13 + S16 + S8 + S12(D11) + S14 + S18 + S19 + S21 + S22
+///   Layer 4 (Drift):        S10 + S11 + S15 + S23 + S24
 ///   Layer 5 (Project):      S5 (optional)
 const EXECUTION_LAYERS: &[&[&str]] = &[
-    &["S1", "S6", "S17"],
+    &["S1", "S6", "S17", "S20"],
     &["S2", "S9"],
-    &["S3", "S4", "S7", "S13", "S16", "S8", "S12", "S14", "S18", "S19"],
-    &["S10", "S11", "S15"],
+    &["S3", "S4", "S7", "S13", "S16", "S8", "S12", "S14", "S18", "S19", "S21", "S22"],
+    &["S10", "S11", "S15", "S23", "S24"],
     &["S5"],
 ];
 
