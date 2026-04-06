@@ -11,6 +11,13 @@ pub mod integration_test_cov;
 pub mod event_schema_drift;
 pub mod env_config_drift;
 pub mod data_isolation;
+pub mod destructive_endpoint_safety;
+pub mod soft_delete_lifecycle;
+pub mod cross_service_duplication;
+pub mod role_hardcoding;
+pub mod silent_error_swallowing;
+pub mod token_invalidation;
+pub mod otp_replay_protection;
 
 use rayon::prelude::*;
 
@@ -31,6 +38,13 @@ pub fn create_scanners(filter: Option<&str>) -> Vec<Box<dyn Scanner>> {
         Box::new(event_schema_drift::EventSchemaDrift),          // S10
         Box::new(env_config_drift::EnvConfigDrift),              // S11
         Box::new(data_isolation::DataIsolationAudit),            // S12
+        Box::new(destructive_endpoint_safety::DestructiveEndpointSafety), // S13
+        Box::new(soft_delete_lifecycle::SoftDeleteLifecycle),            // S14
+        Box::new(cross_service_duplication::CrossServiceDuplication),    // S15
+        Box::new(role_hardcoding::RoleHardcoding),                      // S16
+        Box::new(silent_error_swallowing::SilentErrorSwallowing),       // S17
+        Box::new(token_invalidation::TokenInvalidation),                // S18
+        Box::new(otp_replay_protection::OtpReplayProtection),          // S19
     ];
 
     match filter {
@@ -45,16 +59,16 @@ pub fn create_scanners(filter: Option<&str>) -> Vec<Box<dyn Scanner>> {
 }
 
 /// 5-layer execution order with intra-layer parallelism:
-///   Layer 1 (Base):         S1 + S6
+///   Layer 1 (Base):         S1 + S6 + S17
 ///   Layer 2 (Core):         S2 + S9
-///   Layer 3 (Completeness): S3 + S4 + S7 + S8 + S12
-///   Layer 4 (Drift):        S10 + S11
+///   Layer 3 (Completeness): S3 + S4 + S7 + S13 + S16 + S8 + S12(D11) + S14 + S18 + S19
+///   Layer 4 (Drift):        S10 + S11 + S15
 ///   Layer 5 (Project):      S5 (optional)
 const EXECUTION_LAYERS: &[&[&str]] = &[
-    &["S1", "S6"],
+    &["S1", "S6", "S17"],
     &["S2", "S9"],
-    &["S3", "S4", "S7", "S8", "S12"],
-    &["S10", "S11"],
+    &["S3", "S4", "S7", "S13", "S16", "S8", "S12", "S14", "S18", "S19"],
+    &["S10", "S11", "S15"],
     &["S5"],
 ];
 

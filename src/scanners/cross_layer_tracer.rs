@@ -557,6 +557,7 @@ mod tests {
                 "hooks".into(),
                 "page".into(),
             ],
+            linked_repos: Vec::new(),
         }
     }
 }

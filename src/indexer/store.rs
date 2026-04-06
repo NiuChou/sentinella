@@ -28,6 +28,13 @@ pub struct IndexStore {
     pub db_pool_refs: DashMap<PathBuf, Vec<DbPoolRef>>,
     pub service_boundaries: DashMap<String, ServiceBoundary>,
     pub table_ownership: DashMap<String, String>,
+    pub secondary_auth_refs: DashMap<PathBuf, Vec<SecondaryAuthRef>>,
+    pub soft_delete_columns: DashMap<String, Vec<SoftDeleteColumn>>,
+    pub error_handling_refs: DashMap<PathBuf, Vec<ErrorHandlingRef>>,
+    pub role_check_refs: DashMap<PathBuf, Vec<RoleCheckRef>>,
+    pub function_signatures: DashMap<PathBuf, Vec<FunctionSignature>>,
+    pub status_literal_refs: DashMap<String, Vec<StatusLiteralRef>>,
+    pub session_invalidation_refs: DashMap<PathBuf, Vec<SessionInvalidationRef>>,
 }
 
 impl IndexStore {
@@ -193,6 +200,55 @@ impl IndexStore {
         self.service_boundaries
             .iter()
             .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect()
+    }
+
+    pub fn all_secondary_auth_refs(&self) -> Vec<SecondaryAuthRef> {
+        self.secondary_auth_refs
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_soft_delete_columns(&self) -> Vec<SoftDeleteColumn> {
+        self.soft_delete_columns
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_error_handling_refs(&self) -> Vec<ErrorHandlingRef> {
+        self.error_handling_refs
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_role_check_refs(&self) -> Vec<RoleCheckRef> {
+        self.role_check_refs
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_function_signatures(&self) -> Vec<FunctionSignature> {
+        self.function_signatures
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_status_literal_refs(&self) -> Vec<StatusLiteralRef> {
+        self.status_literal_refs
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_session_invalidation_refs(&self) -> Vec<SessionInvalidationRef> {
+        self.session_invalidation_refs
+            .iter()
+            .flat_map(|entry| entry.value().clone())
             .collect()
     }
 

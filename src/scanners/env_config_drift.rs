@@ -420,6 +420,7 @@ mod tests {
             dispatch: Default::default(),
             data_isolation: Default::default(),
             required_layers: Default::default(),
+            linked_repos: Vec::new(),
         };
         let store = IndexStore::new();
 

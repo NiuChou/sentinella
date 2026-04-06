@@ -10,8 +10,10 @@ use super::{
 };
 use crate::indexer::store::{normalize_api_path, IndexStore};
 use crate::indexer::types::{
-    ApiEndpoint, DbPoolRef, DbWriteOp, DbWriteRef, EnvRef, EventConsumer, EventProducer, FileInfo,
-    Framework, HardcodedCredential, HttpMethod, Language, RedisKeyRef, RedisOp, RlsContextRef,
+    ApiEndpoint, DbPoolRef, DbWriteOp, DbWriteRef, EnvRef, ErrorHandlingRef, ErrorHandlingType,
+    EventConsumer, EventProducer, FileInfo, Framework, FunctionSignature, HardcodedCredential,
+    HttpMethod, Language, RedisKeyRef, RedisOp, RlsContextRef, RoleCheckRef, RoleCheckType,
+    SecondaryAuthRef, SecondaryAuthType, SessionInvalidationRef, SessionInvalidationType,
     SqlQueryOp, SqlQueryRef, StubIndicator, StubType,
 };
 
@@ -47,6 +49,11 @@ impl LanguageParser for GoParser {
         scan_hardcoded_creds_go(path, source, store);
         scan_sql_query_refs_go(path, source, store);
         scan_db_pool_refs_go(path, source, store);
+        scan_secondary_auth_go(path, source, store);
+        scan_error_handling_go(path, source, store);
+        scan_role_checks_go(path, source, store);
+        scan_function_signatures_go(path, source, &tree, &go_language, store);
+        scan_session_invalidation_go(path, source, store);
 
         Ok(())
     }
@@ -634,6 +641,293 @@ fn scan_db_pool_refs_go(path: &Path, source: &[u8], store: &IndexStore) {
             };
             store
                 .db_pool_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+fn go_secondary_auth_call_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"\b(VerifyOTP|ValidateOTP|CheckTOTP|VerifyTOTP|Verify2FA|ConfirmPassword|ValidateCSRF|VerifyCode)\s*\(").unwrap()
+    })
+}
+
+fn classify_secondary_auth_go(text: &str) -> SecondaryAuthType {
+    if text.contains("CSRF") || text.contains("Csrf") {
+        SecondaryAuthType::CsrfToken
+    } else if text.contains("2FA") || text.contains("TwoFactor") {
+        SecondaryAuthType::TwoFactor
+    } else if text.contains("Password") || text.contains("Confirm") {
+        SecondaryAuthType::PasswordConfirm
+    } else {
+        SecondaryAuthType::Otp
+    }
+}
+
+fn scan_secondary_auth_go(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let call_re = go_secondary_auth_call_re();
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        if let Some(mat) = call_re.find(line_text) {
+            let auth_type = classify_secondary_auth_go(mat.as_str());
+            let entry = SecondaryAuthRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                auth_type,
+                near_endpoint: None,
+            };
+            store
+                .secondary_auth_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+fn go_ignored_error_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"\b_\s*(?:,\s*_\s*)?=\s*\w+").unwrap()
+    })
+}
+
+fn go_empty_err_branch_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"if\s+err\s*!=\s*nil\s*\{\s*\}").unwrap()
+    })
+}
+
+fn scan_error_handling_go(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let ignored_re = go_ignored_error_re();
+    let empty_branch_re = go_empty_err_branch_re();
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        if ignored_re.is_match(line_text) {
+            let entry = ErrorHandlingRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                error_type: ErrorHandlingType::IgnoredError,
+                context: "ignored error with _ assignment".to_string(),
+            };
+            store
+                .error_handling_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+
+        if empty_branch_re.is_match(line_text) {
+            let entry = ErrorHandlingRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                error_type: ErrorHandlingType::EmptyErrorBranch,
+                context: "empty if err != nil block".to_string(),
+            };
+            store
+                .error_handling_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+fn go_role_single_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)\brole\s*==\s*"([^"]+)""#).unwrap()
+    })
+}
+
+fn go_role_map_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(?:allowedRoles|roleMap|roleSet)\[role\]|slices\.Contains\(.*role"#).unwrap()
+    })
+}
+
+fn is_middleware_file_go(path: &Path) -> bool {
+    let path_str = path.to_string_lossy().to_lowercase();
+    path_str.contains("middleware")
+        || path_str.contains("guard")
+        || path_str.contains("auth")
+}
+
+fn scan_role_checks_go(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let single_re = go_role_single_re();
+    let map_re = go_role_map_re();
+    let in_middleware = is_middleware_file_go(path);
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        for cap in single_re.captures_iter(line_text) {
+            if let Some(role_val) = cap.get(1) {
+                let entry = RoleCheckRef {
+                    file: path.to_path_buf(),
+                    line: line_num + 1,
+                    check_type: RoleCheckType::SingleValue,
+                    role_value: role_val.as_str().to_string(),
+                    is_middleware: in_middleware,
+                };
+                store
+                    .role_check_refs
+                    .entry(path.to_path_buf())
+                    .or_default()
+                    .push(entry);
+            }
+        }
+
+        if map_re.is_match(line_text) {
+            let entry = RoleCheckRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                check_type: RoleCheckType::SetCheck,
+                role_value: "map_check".to_string(),
+                is_middleware: in_middleware,
+            };
+            store
+                .role_check_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+const GO_FUNCTIONS_QUERY: &str = r#"
+(function_declaration
+  name: (identifier) @func_name
+  parameters: (parameter_list) @params
+  body: (block) @body)
+
+(method_declaration
+  name: (field_identifier) @func_name
+  parameters: (parameter_list) @params
+  body: (block) @body)
+"#;
+
+fn scan_function_signatures_go(
+    path: &Path,
+    source: &[u8],
+    tree: &tree_sitter::Tree,
+    language: &tree_sitter::Language,
+    store: &IndexStore,
+) {
+    run_query(GO_FUNCTIONS_QUERY, language, source, tree, |_m, captures| {
+        let name_cap = find_capture(captures, "func_name");
+        let params_cap = find_capture(captures, "params");
+        let body_cap = find_capture(captures, "body");
+
+        if let (Some((_, name, line)), Some((_, params_text, _)), Some((_, body_text, _))) =
+            (name_cap, params_cap, body_cap)
+        {
+            // Only exported functions (capitalized first letter)
+            if name.starts_with(|c: char| c.is_lowercase()) {
+                return;
+            }
+
+            let params: Vec<String> = params_text
+                .trim_matches(|c| c == '(' || c == ')')
+                .split(',')
+                .map(|p| p.trim().to_string())
+                .filter(|p| !p.is_empty())
+                .collect();
+
+            let body_hash = hash_source(body_text.as_bytes());
+
+            let entry = FunctionSignature {
+                file: path.to_path_buf(),
+                line: *line,
+                name: name.clone(),
+                params,
+                body_hash,
+                service_name: None,
+            };
+            store
+                .function_signatures
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    });
+}
+
+fn go_jwt_blacklist_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(?:blacklist|revoke\s*[\.(].*token|token\s*[\.(].*revoke|invalidate\s*[\.(].*token|add\s*[\.(].*blacklist)").unwrap()
+    })
+}
+
+fn go_redis_session_del_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(?:del\s*[\.(].*session|session\s*[\.(].*del|redis\s*[\.(].*del|destroy\s*[\.(].*session)").unwrap()
+    })
+}
+
+fn go_cookie_clear_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(?:delete_cookie|SetCookie\s*\(.*MaxAge\s*:\s*-1|remove_cookie|http\.SetCookie\s*\(.*MaxAge\s*:\s*(?:0|-1))").unwrap()
+    })
+}
+
+fn go_session_destroy_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(?:session\.Destroy|session\.Invalidate|session\.Clear|session\.Options\s*\(.*MaxAge\s*:\s*-1|sessions\.Save)").unwrap()
+    })
+}
+
+fn classify_session_invalidation_go(line: &str) -> Option<SessionInvalidationType> {
+    if go_jwt_blacklist_re().is_match(line) {
+        Some(SessionInvalidationType::JwtBlacklist)
+    } else if go_redis_session_del_re().is_match(line) {
+        Some(SessionInvalidationType::RedisSessionDelete)
+    } else if go_cookie_clear_re().is_match(line) {
+        Some(SessionInvalidationType::CookieClear)
+    } else if go_session_destroy_re().is_match(line) {
+        Some(SessionInvalidationType::SessionDestroy)
+    } else {
+        None
+    }
+}
+
+fn scan_session_invalidation_go(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        if let Some(inv_type) = classify_session_invalidation_go(line_text) {
+            let entry = SessionInvalidationRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                invalidation_type: inv_type,
+            };
+            store
+                .session_invalidation_refs
                 .entry(path.to_path_buf())
                 .or_default()
                 .push(entry);

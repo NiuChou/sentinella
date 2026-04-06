@@ -4,14 +4,18 @@ use std::sync::OnceLock;
 use anyhow::Result;
 use regex::Regex;
 use sqlparser::ast::{
-    AlterTableOperation, GrantObjects, ObjectNamePart, Statement,
+    AlterTableOperation, BinaryOperator, Expr, GrantObjects, ObjectNamePart, Statement, Value,
+    ValueWithSpan,
 };
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
 use super::{count_lines, hash_source, LanguageParser};
 use crate::indexer::store::IndexStore;
-use crate::indexer::types::{FileInfo, Language, RlsPolicyInfo, TableInfo};
+use crate::indexer::types::{
+    FileInfo, Language, RlsPolicyInfo, SoftDeleteColumn, SoftDeleteType, StatusLiteralRef,
+    TableInfo,
+};
 
 pub struct SqlParser;
 
@@ -39,6 +43,9 @@ impl LanguageParser for SqlParser {
         parse_rls_policies_regex(source_str, store);
         parse_rls_policy_details_regex(source_str, store);
         parse_force_rls_regex(source_str, store);
+
+        // S14/D11: Extract soft-delete columns and status literals from AST
+        extract_soft_delete_and_status(path, source_str, store);
 
         Ok(())
     }
@@ -393,6 +400,271 @@ fn parse_force_rls_regex(source: &str, store: &IndexStore) {
 
         if let Some(mut entry) = store.db_tables.get_mut(&key) {
             entry.has_rls = true;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S14: Soft-delete column detection + D11: Status literal extraction
+// ---------------------------------------------------------------------------
+
+fn extract_soft_delete_and_status(path: &Path, source: &str, store: &IndexStore) {
+    let dialect = PostgreSqlDialect {};
+    let statements = match Parser::parse_sql(&dialect, source) {
+        Ok(stmts) => stmts,
+        Err(_) => {
+            // Fallback to regex for soft-delete columns
+            extract_soft_delete_regex(path, source, store);
+            extract_status_literals_regex(path, source, store);
+            return;
+        }
+    };
+
+    for stmt in &statements {
+        match stmt {
+            Statement::CreateTable(ct) => {
+                let (_, table_name) = extract_object_name(&ct.name);
+                extract_soft_delete_from_columns(path, source, &table_name, ct, store);
+            }
+            Statement::Query(query) => {
+                extract_status_literals_from_query(path, source, query, store);
+            }
+            Statement::Insert(insert) => {
+                if let Some(ref src) = insert.source {
+                    extract_status_literals_from_query(path, source, src, store);
+                }
+            }
+            Statement::Update(update) => {
+                if let Some(ref expr) = update.selection {
+                    extract_status_literals_from_expr(path, source, expr, store);
+                }
+            }
+            Statement::Delete(del) => {
+                if let Some(ref expr) = del.selection {
+                    extract_status_literals_from_expr(path, source, expr, store);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn extract_soft_delete_from_columns(
+    path: &Path,
+    source: &str,
+    table_name: &str,
+    ct: &sqlparser::ast::CreateTable,
+    store: &IndexStore,
+) {
+    for col in &ct.columns {
+        let col_name = col.name.value.to_lowercase();
+        let col_type_str = col.data_type.to_string().to_uppercase();
+
+        let soft_delete_type = if col_name == "deleted_at" {
+            Some(SoftDeleteType::Timestamp)
+        } else if col_name == "is_deleted" {
+            if col_type_str.contains("BOOL") {
+                Some(SoftDeleteType::Boolean)
+            } else {
+                Some(SoftDeleteType::Boolean)
+            }
+        } else if col_name == "status" {
+            if col_type_str.contains("VARCHAR") || col_type_str.contains("TEXT") {
+                Some(SoftDeleteType::Status)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if let Some(sdt) = soft_delete_type {
+            let line = find_line_for_text(source, &col.name.value);
+            let entry = SoftDeleteColumn {
+                table_name: table_name.to_string(),
+                column_name: col.name.value.clone(),
+                column_type: sdt,
+                file: path.to_path_buf(),
+                line,
+            };
+            store
+                .soft_delete_columns
+                .entry(table_name.to_string())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+fn extract_status_literals_from_query(
+    path: &Path,
+    source: &str,
+    query: &sqlparser::ast::Query,
+    store: &IndexStore,
+) {
+    if let sqlparser::ast::SetExpr::Select(ref select) = *query.body {
+        if let Some(ref selection) = select.selection {
+            extract_status_literals_from_expr(path, source, selection, store);
+        }
+    }
+}
+
+fn extract_status_literals_from_expr(
+    path: &Path,
+    source: &str,
+    expr: &Expr,
+    store: &IndexStore,
+) {
+    match expr {
+        Expr::BinaryOp { left, op, right } => {
+            if matches!(op, BinaryOperator::Eq | BinaryOperator::NotEq) {
+                try_extract_status_literal(path, source, left, right, store);
+                try_extract_status_literal(path, source, right, left, store);
+            }
+            extract_status_literals_from_expr(path, source, left, store);
+            extract_status_literals_from_expr(path, source, right, store);
+        }
+        Expr::Nested(inner) => {
+            extract_status_literals_from_expr(path, source, inner, store);
+        }
+        _ => {}
+    }
+}
+
+fn try_extract_status_literal(
+    path: &Path,
+    source: &str,
+    col_expr: &Expr,
+    val_expr: &Expr,
+    store: &IndexStore,
+) {
+    let col_name = match col_expr {
+        Expr::Identifier(ident) => ident.value.to_lowercase(),
+        Expr::CompoundIdentifier(parts) => {
+            parts.last().map(|p| p.value.to_lowercase()).unwrap_or_default()
+        }
+        _ => return,
+    };
+
+    if !matches!(col_name.as_str(), "status" | "state" | "account_status" | "user_status" | "order_status") {
+        return;
+    }
+
+    let literal_value = match val_expr {
+        Expr::Value(vws) => match &vws.value {
+            Value::SingleQuotedString(s) => s.clone(),
+            Value::DoubleQuotedString(s) => s.clone(),
+            _ => return,
+        },
+        _ => return,
+    };
+
+    let line = find_line_for_text(source, &literal_value);
+    let entry = StatusLiteralRef {
+        file: path.to_path_buf(),
+        line,
+        column_name: col_name,
+        literal_value,
+        service_name: None,
+    };
+    store
+        .status_literal_refs
+        .entry(entry.column_name.clone())
+        .or_default()
+        .push(entry);
+}
+
+fn find_line_for_text(source: &str, needle: &str) -> usize {
+    source
+        .lines()
+        .enumerate()
+        .find(|(_, line)| line.contains(needle))
+        .map(|(i, _)| i + 1)
+        .unwrap_or(1)
+}
+
+// Regex fallbacks for soft-delete and status literals
+
+fn soft_delete_col_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)\b(deleted_at|is_deleted|status)\s+(TIMESTAMP|TIMESTAMPTZ|BOOLEAN|BOOL|VARCHAR|TEXT)").unwrap()
+    })
+}
+
+fn extract_soft_delete_regex(path: &Path, source: &str, store: &IndexStore) {
+    let re = soft_delete_col_re();
+    let table_re = create_table_re();
+
+    let mut current_table = String::new();
+
+    for (line_num, line_text) in source.lines().enumerate() {
+        if let Some(cap) = table_re.captures(line_text) {
+            current_table = cap
+                .get(2)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
+        }
+
+        if let Some(cap) = re.captures(line_text) {
+            if let (Some(col_match), Some(type_match)) = (cap.get(1), cap.get(2)) {
+                let col_name = col_match.as_str().to_lowercase();
+                let type_str = type_match.as_str().to_uppercase();
+
+                let column_type = if col_name == "deleted_at" {
+                    SoftDeleteType::Timestamp
+                } else if col_name == "is_deleted" {
+                    SoftDeleteType::Boolean
+                } else if type_str.contains("VARCHAR") || type_str.contains("TEXT") {
+                    SoftDeleteType::Status
+                } else {
+                    continue;
+                };
+
+                let entry = SoftDeleteColumn {
+                    table_name: current_table.clone(),
+                    column_name: col_match.as_str().to_string(),
+                    column_type,
+                    file: path.to_path_buf(),
+                    line: line_num + 1,
+                };
+                store
+                    .soft_delete_columns
+                    .entry(current_table.clone())
+                    .or_default()
+                    .push(entry);
+            }
+        }
+    }
+}
+
+fn status_literal_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)\b(status|state|account_status|user_status|order_status)\s*=\s*'([^']+)'").unwrap()
+    })
+}
+
+fn extract_status_literals_regex(path: &Path, source: &str, store: &IndexStore) {
+    let re = status_literal_re();
+
+    for (line_num, line_text) in source.lines().enumerate() {
+        for cap in re.captures_iter(line_text) {
+            if let (Some(col_match), Some(val_match)) = (cap.get(1), cap.get(2)) {
+                let col_name = col_match.as_str().to_lowercase();
+                let entry = StatusLiteralRef {
+                    file: path.to_path_buf(),
+                    line: line_num + 1,
+                    column_name: col_name.clone(),
+                    literal_value: val_match.as_str().to_string(),
+                    service_name: None,
+                };
+                store
+                    .status_literal_refs
+                    .entry(col_name)
+                    .or_default()
+                    .push(entry);
+            }
         }
     }
 }

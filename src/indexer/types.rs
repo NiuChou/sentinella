@@ -299,3 +299,109 @@ pub struct ServiceBoundary {
     pub root_dir: PathBuf,
     pub owned_tables: Vec<String>,
 }
+
+/// S13: Secondary authentication reference (OTP/2FA/password re-entry).
+#[derive(Debug, Clone)]
+pub struct SecondaryAuthRef {
+    pub file: PathBuf,
+    pub line: usize,
+    pub auth_type: SecondaryAuthType,
+    pub near_endpoint: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecondaryAuthType {
+    Otp,
+    TwoFactor,
+    PasswordConfirm,
+    CsrfToken,
+}
+
+/// S14: Soft-delete column information.
+#[derive(Debug, Clone)]
+pub struct SoftDeleteColumn {
+    pub table_name: String,
+    pub column_name: String,
+    pub column_type: SoftDeleteType,
+    pub file: PathBuf,
+    pub line: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SoftDeleteType {
+    Timestamp,
+    Status,
+    Boolean,
+}
+
+/// S15: Function signature for cross-service duplication detection.
+#[derive(Debug, Clone)]
+pub struct FunctionSignature {
+    pub file: PathBuf,
+    pub line: usize,
+    pub name: String,
+    pub params: Vec<String>,
+    pub body_hash: u64,
+    pub service_name: Option<String>,
+}
+
+/// S16: Role check reference.
+#[derive(Debug, Clone)]
+pub struct RoleCheckRef {
+    pub file: PathBuf,
+    pub line: usize,
+    pub check_type: RoleCheckType,
+    pub role_value: String,
+    pub is_middleware: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RoleCheckType {
+    SingleValue,
+    SetCheck,
+    ArrayIncludes,
+}
+
+/// S17: Error handling reference.
+#[derive(Debug, Clone)]
+pub struct ErrorHandlingRef {
+    pub file: PathBuf,
+    pub line: usize,
+    pub error_type: ErrorHandlingType,
+    pub context: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorHandlingType {
+    EmptyCatch,
+    EmptyExcept,
+    IgnoredError,
+    UncheckedResponse,
+    EmptyErrorBranch,
+}
+
+/// D11: Status literal reference in SQL queries.
+#[derive(Debug, Clone)]
+pub struct StatusLiteralRef {
+    pub file: PathBuf,
+    pub line: usize,
+    pub column_name: String,
+    pub literal_value: String,
+    pub service_name: Option<String>,
+}
+
+/// S18: Session/Token invalidation reference.
+#[derive(Debug, Clone)]
+pub struct SessionInvalidationRef {
+    pub file: PathBuf,
+    pub line: usize,
+    pub invalidation_type: SessionInvalidationType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionInvalidationType {
+    RedisSessionDelete,
+    JwtBlacklist,
+    CookieClear,
+    SessionDestroy,
+}

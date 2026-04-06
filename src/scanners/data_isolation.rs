@@ -1,4 +1,7 @@
+use std::collections::{HashMap, HashSet};
+
 use crate::config::schema::DataIsolationConfig;
+use crate::indexer::types::StatusLiteralRef;
 use crate::scanners::types::{Finding, ScanContext, ScanResult, Scanner, Severity};
 
 const SCANNER_ID: &str = "S12";
@@ -57,11 +60,15 @@ impl Scanner for DataIsolationAudit {
         let d9_findings = check_redis_enumeration(ctx, di_config);
         let d10_findings = check_cross_service_access(ctx, di_config);
 
+        // Dimension E: Status Value Consistency
+        let d11_findings = check_d11_status_value_drift(ctx);
+
         findings.extend(d6_findings);
         findings.extend(d7_findings);
         findings.extend(d8_findings);
         findings.extend(d9_findings);
         findings.extend(d10_findings);
+        findings.extend(d11_findings);
 
         let score = compute_score(&findings);
         let summary = build_summary(&findings, score);
@@ -649,8 +656,8 @@ fn check_redis_enumeration(ctx: &ScanContext, config: &DataIsolationConfig) -> V
 fn build_table_ownership(
     config: &DataIsolationConfig,
     store: &crate::indexer::store::IndexStore,
-) -> std::collections::HashMap<String, String> {
-    let mut ownership: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+) -> HashMap<String, String> {
+    let mut ownership: HashMap<String, String> = HashMap::new();
 
     // 1. Explicit table mappings from config
     for svc in &config.service_patterns {
@@ -742,6 +749,101 @@ fn check_cross_service_access(ctx: &ScanContext, config: &DataIsolationConfig) -
 }
 
 // ---------------------------------------------------------------------------
+// D11: Status Value Drift — inconsistent status literals across services
+// ---------------------------------------------------------------------------
+
+fn group_refs_by_column(refs: &[StatusLiteralRef]) -> HashMap<String, Vec<&StatusLiteralRef>> {
+    let mut by_column: HashMap<String, Vec<&StatusLiteralRef>> = HashMap::new();
+    for r in refs {
+        by_column.entry(r.column_name.clone()).or_default().push(r);
+    }
+    by_column
+}
+
+fn check_casing_drift(col: &str, refs: &[&StatusLiteralRef]) -> Option<Finding> {
+    let all_values: HashSet<&str> = refs.iter().map(|r| r.literal_value.as_str()).collect();
+    let normalized: HashSet<String> = all_values.iter().map(|v: &&str| v.to_lowercase()).collect();
+
+    if normalized.len() >= all_values.len() {
+        return None;
+    }
+
+    let mut variants: Vec<&str> = all_values.into_iter().collect();
+    variants.sort_unstable();
+    refs.first().map(|first| {
+        Finding::new(
+            SCANNER_ID,
+            Severity::Warning,
+            format!(
+                "D11: Status value drift on column '{}' — inconsistent casing: {}",
+                col,
+                variants.join(", ")
+            ),
+        )
+        .with_file(&first.file)
+        .with_line(first.line)
+        .with_suggestion(
+            "Normalize status values across all services to a single casing convention",
+        )
+    })
+}
+
+fn check_cross_service_value_drift(
+    col: &str,
+    refs: &[&StatusLiteralRef],
+) -> Option<Finding> {
+    let mut values_by_service: HashMap<&str, HashSet<&str>> = HashMap::new();
+    for r in refs {
+        let svc = r.service_name.as_deref().unwrap_or("unknown");
+        values_by_service.entry(svc).or_default().insert(r.literal_value.as_str());
+    }
+
+    if values_by_service.len() < 2 {
+        return None;
+    }
+
+    let services: Vec<(&str, &HashSet<&str>)> = values_by_service.iter().map(|(&k, v)| (k, v)).collect();
+    let (first_svc, first_set) = services[0];
+
+    for &(svc, vals) in &services[1..] {
+        if first_set != vals {
+            return refs.first().map(|first| {
+                Finding::new(
+                    SCANNER_ID,
+                    Severity::Warning,
+                    format!(
+                        "D11: Service '{}' uses different status values for '{}' than '{}'",
+                        svc, col, first_svc
+                    ),
+                )
+                .with_file(&first.file)
+                .with_line(first.line)
+                .with_suggestion("Align status value enums across all services")
+            });
+        }
+    }
+
+    None
+}
+
+fn check_d11_status_value_drift(ctx: &ScanContext) -> Vec<Finding> {
+    let all_refs = ctx.index.all_status_literal_refs();
+    let by_column = group_refs_by_column(&all_refs);
+    let mut findings = Vec::new();
+
+    for (col, refs) in &by_column {
+        if let Some(f) = check_casing_drift(col, refs) {
+            findings.push(f);
+        }
+        if let Some(f) = check_cross_service_value_drift(col, refs) {
+            findings.push(f);
+        }
+    }
+
+    findings
+}
+
+// ---------------------------------------------------------------------------
 // Scoring & Summary
 // ---------------------------------------------------------------------------
 
@@ -795,6 +897,10 @@ fn build_summary(findings: &[Finding], score: u8) -> String {
         .iter()
         .filter(|f| f.message.contains("directly accesses table"))
         .count();
+    let d11_count = findings
+        .iter()
+        .filter(|f| f.message.starts_with("D11:"))
+        .count();
 
     let mut detail_parts: Vec<String> = Vec::new();
     if d8_count > 0 {
@@ -805,6 +911,9 @@ fn build_summary(findings: &[Finding], score: u8) -> String {
     }
     if d10_count > 0 {
         detail_parts.push(format!("{} cross-service", d10_count));
+    }
+    if d11_count > 0 {
+        detail_parts.push(format!("{} status-drift", d11_count));
     }
 
     let detail_suffix = if detail_parts.is_empty() {
@@ -852,6 +961,7 @@ mod tests {
             dispatch: Default::default(),
             data_isolation: Default::default(),
             required_layers: Default::default(),
+            linked_repos: Default::default(),
         }
     }
 
@@ -1359,5 +1469,128 @@ mod tests {
             .filter(|f| f.message.contains("directly accesses table"))
             .collect();
         assert!(d10.is_empty(), "Own table access should not flag");
+    }
+
+    // -----------------------------------------------------------------------
+    // D11: Status Value Drift
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_d11_casing_drift_detected() {
+        let config = default_config();
+        let store = IndexStore::new();
+
+        store.status_literal_refs.insert(
+            "status".into(),
+            vec![
+                StatusLiteralRef {
+                    file: PathBuf::from("services/auth/user.ts"),
+                    line: 10,
+                    column_name: "status".into(),
+                    literal_value: "active".into(),
+                    service_name: Some("auth".into()),
+                },
+                StatusLiteralRef {
+                    file: PathBuf::from("services/billing/invoice.ts"),
+                    line: 20,
+                    column_name: "status".into(),
+                    literal_value: "ACTIVE".into(),
+                    service_name: Some("billing".into()),
+                },
+            ],
+        );
+
+        let ctx = ScanContext {
+            config: &config,
+            index: &store,
+            root_dir: Path::new("/tmp"),
+        };
+        let result = DataIsolationAudit.scan(&ctx);
+        let d11: Vec<_> = result
+            .findings
+            .iter()
+            .filter(|f| f.message.contains("D11:") && f.message.contains("inconsistent casing"))
+            .collect();
+        assert!(!d11.is_empty(), "Should flag casing drift");
+        assert_eq!(d11[0].severity, Severity::Warning);
+    }
+
+    #[test]
+    fn test_d11_cross_service_different_values() {
+        let config = default_config();
+        let store = IndexStore::new();
+
+        store.status_literal_refs.insert(
+            "status".into(),
+            vec![
+                StatusLiteralRef {
+                    file: PathBuf::from("services/auth/user.ts"),
+                    line: 10,
+                    column_name: "status".into(),
+                    literal_value: "active".into(),
+                    service_name: Some("auth".into()),
+                },
+                StatusLiteralRef {
+                    file: PathBuf::from("services/billing/invoice.ts"),
+                    line: 20,
+                    column_name: "status".into(),
+                    literal_value: "enabled".into(),
+                    service_name: Some("billing".into()),
+                },
+            ],
+        );
+
+        let ctx = ScanContext {
+            config: &config,
+            index: &store,
+            root_dir: Path::new("/tmp"),
+        };
+        let result = DataIsolationAudit.scan(&ctx);
+        let d11: Vec<_> = result
+            .findings
+            .iter()
+            .filter(|f| f.message.contains("D11:") && f.message.contains("different status values"))
+            .collect();
+        assert!(!d11.is_empty(), "Should flag cross-service value drift");
+        assert_eq!(d11[0].severity, Severity::Warning);
+    }
+
+    #[test]
+    fn test_d11_consistent_values_no_finding() {
+        let config = default_config();
+        let store = IndexStore::new();
+
+        store.status_literal_refs.insert(
+            "status".into(),
+            vec![
+                StatusLiteralRef {
+                    file: PathBuf::from("services/auth/user.ts"),
+                    line: 10,
+                    column_name: "status".into(),
+                    literal_value: "active".into(),
+                    service_name: Some("auth".into()),
+                },
+                StatusLiteralRef {
+                    file: PathBuf::from("services/billing/invoice.ts"),
+                    line: 20,
+                    column_name: "status".into(),
+                    literal_value: "active".into(),
+                    service_name: Some("billing".into()),
+                },
+            ],
+        );
+
+        let ctx = ScanContext {
+            config: &config,
+            index: &store,
+            root_dir: Path::new("/tmp"),
+        };
+        let result = DataIsolationAudit.scan(&ctx);
+        let d11: Vec<_> = result
+            .findings
+            .iter()
+            .filter(|f| f.message.starts_with("D11:"))
+            .collect();
+        assert!(d11.is_empty(), "Consistent values should not flag");
     }
 }

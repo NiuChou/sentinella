@@ -17,54 +17,59 @@ use self::store::IndexStore;
 /// assumed to be generated artifacts and are silently skipped.
 const MAX_FILE_SIZE_BYTES: u64 = 1_024 * 1_024;
 
-/// Build the complete index by walking the project tree and parsing every
-/// recognised file in parallel.
-///
-/// The walker respects `.gitignore` rules and does not follow symlinks.
-/// Binary files and files larger than [`MAX_FILE_SIZE_BYTES`] are skipped.
-pub fn build_index(root: &Path, _config: &Config) -> Result<Arc<IndexStore>> {
+pub fn build_index(root: &Path, config: &Config) -> Result<Arc<IndexStore>> {
+    build_index_multi(&[root], config)
+}
+
+pub fn build_index_multi(roots: &[&Path], _config: &Config) -> Result<Arc<IndexStore>> {
     let store = IndexStore::new();
     let parsers = parsers::all_parsers();
 
-    // Collect walkable file entries.  The `ignore` crate automatically
-    // respects `.gitignore`, `.ignore`, and hidden-file rules.
-    let entries: Vec<_> = WalkBuilder::new(root)
-        .hidden(true)
-        .git_ignore(true)
-        .follow_links(false)
-        .build()
-        .filter_map(|result| match result {
-            Ok(entry) => Some(entry),
-            Err(err) => {
-                eprintln!("Warning: directory walk error: {err}");
-                None
-            }
-        })
-        .filter(|entry| entry.file_type().map_or(false, |ft| ft.is_file()))
-        .collect();
+    let entries = collect_entries(roots);
+    parse_source_files(&entries, &parsers, &store);
+    parse_test_files(&entries, &store);
 
-    // Parse every file in parallel via rayon.
+    Ok(store)
+}
+
+fn collect_entries(roots: &[&Path]) -> Vec<ignore::DirEntry> {
+    roots
+        .iter()
+        .flat_map(|root| {
+            WalkBuilder::new(root)
+                .hidden(true)
+                .git_ignore(true)
+                .follow_links(false)
+                .build()
+                .filter_map(|result| match result {
+                    Ok(entry) => Some(entry),
+                    Err(err) => {
+                        eprintln!("Warning: directory walk error: {err}");
+                        None
+                    }
+                })
+                .filter(|entry| entry.file_type().map_or(false, |ft| ft.is_file()))
+        })
+        .collect()
+}
+
+fn parse_source_files(
+    entries: &[ignore::DirEntry],
+    parsers: &[Box<dyn parsers::LanguageParser>],
+    store: &IndexStore,
+) {
     entries.par_iter().for_each(|entry| {
         let path = entry.path();
 
-        // Skip files that exceed the size threshold.
         if let Ok(meta) = path.metadata() {
             if meta.len() > MAX_FILE_SIZE_BYTES {
                 return;
             }
         }
 
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-        let file_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
-
-        // Find the first parser whose extension list matches this file.
         let matching_parser = parsers.iter().find(|parser| {
             parser.extensions().iter().any(|&pattern| {
                 ext == pattern
@@ -79,7 +84,6 @@ pub fn build_index(root: &Path, _config: &Config) -> Result<Arc<IndexStore>> {
             None => return,
         };
 
-        // Read the file, skipping unreadable or binary content.
         let source = match std::fs::read(path) {
             Ok(bytes) => bytes,
             Err(err) => {
@@ -92,14 +96,13 @@ pub fn build_index(root: &Path, _config: &Config) -> Result<Arc<IndexStore>> {
             return;
         }
 
-        if let Err(err) = parser.parse_file(path, &source, &store) {
+        if let Err(err) = parser.parse_file(path, &source, store) {
             eprintln!("Warning: failed to parse {}: {err}", path.display());
         }
     });
+}
 
-    // Second pass: detect test files and populate test_files store.
-    // This runs independently of language parsers so that test files
-    // parsed by (e.g.) TypeScriptParser also get a TestFileInfo entry.
+fn parse_test_files(entries: &[ignore::DirEntry], store: &IndexStore) {
     entries.par_iter().for_each(|entry| {
         let path = entry.path();
 
@@ -116,12 +119,10 @@ pub fn build_index(root: &Path, _config: &Config) -> Result<Arc<IndexStore>> {
             return;
         }
 
-        if let Err(err) = parsers::test_file::parse_test_file(path, &source, &store) {
+        if let Err(err) = parsers::test_file::parse_test_file(path, &source, store) {
             eprintln!("Warning: failed to parse test file {}: {err}", path.display());
         }
     });
-
-    Ok(store)
 }
 
 /// Heuristic binary detection: if the first 8 KB contain a NUL byte the

@@ -1,6 +1,8 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
+use super::architecture::LinkedRepo;
+
 fn default_version() -> String {
     "1.0".into()
 }
@@ -45,6 +47,8 @@ pub struct Config {
     /// Layers required for S2 cross-layer tracing. Defaults to ["backend", "bff", "hooks", "page"]
     #[serde(default = "default_required_layers")]
     pub required_layers: Vec<String>,
+    #[serde(default)]
+    pub linked_repos: Vec<LinkedRepo>,
 }
 
 // ---------------------------------------------------------------------------

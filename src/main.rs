@@ -7,7 +7,8 @@ use miette::{Context, IntoDiagnostic, Result};
 use owo_colors::OwoColorize;
 
 use sentinella::config;
-use sentinella::indexer::build_index;
+use sentinella::config::architecture::{detect_architecture, Architecture};
+use sentinella::indexer::build_index_multi;
 use sentinella::reporters::gap::{self, ReportFormat};
 use sentinella::reporters::matrix;
 use sentinella::reporters::task_decomposer;
@@ -174,7 +175,15 @@ fn handle_check(
     min_coverage: Option<u8>,
 ) -> Result<()> {
     let cfg = load_project_config(config_path.as_deref(), &dir)?;
-    let index = build_project_index(&dir, &cfg)?;
+
+    let arch = detect_architecture(&dir, &cfg.linked_repos);
+    eprintln!(
+        "{} detected architecture: {}",
+        "info:".blue().bold(),
+        format!("{arch}").cyan(),
+    );
+
+    let index = build_project_index_for_arch(&dir, &cfg, &arch)?;
     let results = run_project_scanners(&cfg, &index, &dir, scanner_filter.as_deref())?;
 
     render_check_output(&results, &cfg, &format);
@@ -190,7 +199,15 @@ fn handle_dispatch(
     dry_run: bool,
 ) -> Result<()> {
     let cfg = load_project_config(config_path.as_deref(), &dir)?;
-    let index = build_project_index(&dir, &cfg)?;
+
+    let arch = detect_architecture(&dir, &cfg.linked_repos);
+    eprintln!(
+        "{} detected architecture: {}",
+        "info:".blue().bold(),
+        format!("{arch}").cyan(),
+    );
+
+    let index = build_project_index_for_arch(&dir, &cfg, &arch)?;
     let results = run_project_scanners(&cfg, &index, &dir, None)?;
 
     let tasks = task_decomposer::decompose(&results);
@@ -216,15 +233,39 @@ fn load_project_config(
     Ok(cfg)
 }
 
-fn build_project_index(
+fn build_project_index_for_arch(
     dir: &std::path::Path,
     cfg: &config::Config,
+    arch: &Architecture,
 ) -> Result<Arc<sentinella::indexer::store::IndexStore>> {
     eprintln!("{} building file index...", "info:".blue().bold());
-    let index = build_index(dir, cfg)
+
+    let roots = collect_roots_for_arch(dir, arch);
+    let root_refs: Vec<&std::path::Path> = roots.iter().map(|p| p.as_path()).collect();
+
+    let index = build_index_multi(&root_refs, cfg)
         .map_err(|e| miette::miette!("failed to build file index: {e}"))?;
-    eprintln!("{} file index ready", "info:".blue().bold());
+
+    eprintln!(
+        "{} file index ready ({} root(s))",
+        "info:".blue().bold(),
+        roots.len(),
+    );
     Ok(index)
+}
+
+fn collect_roots_for_arch(dir: &std::path::Path, arch: &Architecture) -> Vec<PathBuf> {
+    match arch {
+        Architecture::SingleRepo => vec![dir.to_path_buf()],
+        Architecture::Monorepo { services } => {
+            services.iter().map(|s| s.root_dir.clone()).collect()
+        }
+        Architecture::Polyrepo { linked_repos } => {
+            let mut roots = vec![dir.to_path_buf()];
+            roots.extend(linked_repos.iter().map(|r| r.path.clone()));
+            roots
+        }
+    }
 }
 
 fn run_project_scanners(

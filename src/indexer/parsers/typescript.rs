@@ -10,9 +10,11 @@ use super::{
 };
 use crate::indexer::store::{normalize_api_path, IndexStore};
 use crate::indexer::types::{
-    ApiCall, ApiEndpoint, DbPoolRef, DbWriteOp, DbWriteRef, FileInfo, Framework,
-    HardcodedCredential, HttpMethod, ImportEdge, Language, MiddlewareScope, RedisKeyRef, RedisOp,
-    RlsContextRef, EnvRef, SqlQueryOp, SqlQueryRef, StubIndicator, StubType,
+    ApiCall, ApiEndpoint, DbPoolRef, DbWriteOp, DbWriteRef, ErrorHandlingRef, ErrorHandlingType,
+    FileInfo, Framework, FunctionSignature, HardcodedCredential, HttpMethod, ImportEdge, Language,
+    MiddlewareScope, RedisKeyRef, RedisOp, RlsContextRef, RoleCheckRef, RoleCheckType,
+    SecondaryAuthRef, SecondaryAuthType, SessionInvalidationRef, SessionInvalidationType,
+    EnvRef, SqlQueryOp, SqlQueryRef, StubIndicator, StubType,
 };
 
 const ROUTES_QUERY: &str = include_str!("../queries/typescript/routes.scm");
@@ -64,6 +66,11 @@ impl LanguageParser for TypeScriptParser {
         scan_sql_query_refs_ts(path, source, store);
         scan_rls_context_ts(path, source, store);
         scan_db_pool_refs_ts(path, source, store);
+        scan_secondary_auth_ts(path, source, store);
+        scan_error_handling_ts(path, source, store);
+        scan_role_checks_ts(path, source, store);
+        scan_function_signatures_ts(path, source, &tree, &ts_language, store);
+        scan_session_invalidation_ts(path, source, store);
 
         Ok(())
     }
@@ -784,6 +791,313 @@ fn scan_db_pool_refs_ts(path: &Path, source: &[u8], store: &IndexStore) {
 
     if !refs.is_empty() {
         store.db_pool_refs.entry(path.to_path_buf()).or_default().extend(refs);
+    }
+}
+
+fn ts_secondary_auth_call_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)\b(verify_?otp|verify_?code|verify_?2fa|confirm_?password|validate_?csrf|check_?totp|verify_?totp)\s*\(").unwrap()
+    })
+}
+
+fn ts_secondary_auth_param_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)\b(otp|totp|verification_?code|csrf_?token|two_?factor_?code|mfa_?code)\b").unwrap()
+    })
+}
+
+fn classify_secondary_auth(text: &str) -> SecondaryAuthType {
+    let lower = text.to_lowercase();
+    if lower.contains("csrf") {
+        SecondaryAuthType::CsrfToken
+    } else if lower.contains("2fa") || lower.contains("two_factor") || lower.contains("mfa") {
+        SecondaryAuthType::TwoFactor
+    } else if lower.contains("password") || lower.contains("confirm") {
+        SecondaryAuthType::PasswordConfirm
+    } else {
+        SecondaryAuthType::Otp
+    }
+}
+
+fn scan_secondary_auth_ts(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let call_re = ts_secondary_auth_call_re();
+    let param_re = ts_secondary_auth_param_re();
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        let matched = call_re.find(line_text).or_else(|| param_re.find(line_text));
+        if let Some(mat) = matched {
+            let auth_type = classify_secondary_auth(mat.as_str());
+            let entry = SecondaryAuthRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                auth_type,
+                near_endpoint: None,
+            };
+            store
+                .secondary_auth_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+fn ts_empty_catch_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"catch\s*\([^)]*\)\s*\{\s*\}").unwrap()
+    })
+}
+
+fn ts_catch_noop_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"\.catch\s*\(\s*\(\s*\)\s*=>\s*(?:\{\s*\}|undefined|null)\s*\)").unwrap()
+    })
+}
+
+fn scan_error_handling_ts(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let empty_catch_re = ts_empty_catch_re();
+    let catch_noop_re = ts_catch_noop_re();
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        if empty_catch_re.is_match(line_text) {
+            let entry = ErrorHandlingRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                error_type: ErrorHandlingType::EmptyCatch,
+                context: "empty catch block".to_string(),
+            };
+            store
+                .error_handling_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+
+        if catch_noop_re.is_match(line_text) {
+            let entry = ErrorHandlingRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                error_type: ErrorHandlingType::EmptyCatch,
+                context: ".catch(() => {}) noop handler".to_string(),
+            };
+            store
+                .error_handling_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+fn ts_role_single_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)\brole\s*[!=]==?\s*["']([^"']+)["']"#).unwrap()
+    })
+}
+
+fn ts_role_includes_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(?:\[.*?\]\.includes\s*\(\s*role|roles?\.includes\s*\(\s*["']([^"']+)["'])"#).unwrap()
+    })
+}
+
+fn is_middleware_file(path: &Path) -> bool {
+    let path_str = path.to_string_lossy().to_lowercase();
+    path_str.contains("middleware")
+        || path_str.contains("guard")
+        || path_str.contains("auth")
+}
+
+fn scan_role_checks_ts(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let single_re = ts_role_single_re();
+    let includes_re = ts_role_includes_re();
+    let in_middleware = is_middleware_file(path);
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        for cap in single_re.captures_iter(line_text) {
+            if let Some(role_val) = cap.get(1) {
+                let entry = RoleCheckRef {
+                    file: path.to_path_buf(),
+                    line: line_num + 1,
+                    check_type: RoleCheckType::SingleValue,
+                    role_value: role_val.as_str().to_string(),
+                    is_middleware: in_middleware,
+                };
+                store
+                    .role_check_refs
+                    .entry(path.to_path_buf())
+                    .or_default()
+                    .push(entry);
+            }
+        }
+
+        if includes_re.is_match(line_text) {
+            let role_value = includes_re
+                .captures(line_text)
+                .and_then(|c| c.get(1))
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_else(|| "array_check".to_string());
+
+            let entry = RoleCheckRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                check_type: RoleCheckType::ArrayIncludes,
+                role_value,
+                is_middleware: in_middleware,
+            };
+            store
+                .role_check_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+const TS_FUNCTIONS_QUERY: &str = r#"
+(export_statement
+  declaration: (function_declaration
+    name: (identifier) @func_name
+    parameters: (formal_parameters) @params
+    body: (statement_block) @body))
+
+(export_statement
+  declaration: (lexical_declaration
+    (variable_declarator
+      name: (identifier) @func_name
+      value: (arrow_function
+        parameters: (formal_parameters) @params
+        body: (statement_block) @body))))
+
+(method_definition
+  name: (property_identifier) @func_name
+  parameters: (formal_parameters) @params
+  body: (statement_block) @body)
+"#;
+
+fn scan_function_signatures_ts(
+    path: &Path,
+    source: &[u8],
+    tree: &tree_sitter::Tree,
+    language: &tree_sitter::Language,
+    store: &IndexStore,
+) {
+    run_query(TS_FUNCTIONS_QUERY, language, source, tree, |_m, captures| {
+        let name_cap = find_capture(captures, "func_name");
+        let params_cap = find_capture(captures, "params");
+        let body_cap = find_capture(captures, "body");
+
+        if let (Some((_, name, line)), Some((_, params_text, _)), Some((_, body_text, _))) =
+            (name_cap, params_cap, body_cap)
+        {
+            let params: Vec<String> = params_text
+                .trim_matches(|c| c == '(' || c == ')')
+                .split(',')
+                .map(|p| p.trim().to_string())
+                .filter(|p| !p.is_empty())
+                .collect();
+
+            let body_hash = hash_source(body_text.as_bytes());
+
+            let entry = FunctionSignature {
+                file: path.to_path_buf(),
+                line: *line,
+                name: name.clone(),
+                params,
+                body_hash,
+                service_name: None,
+            };
+            store
+                .function_signatures
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    });
+}
+
+fn ts_jwt_blacklist_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(?:blacklist|revoke\s*[\.(].*token|token\s*[\.(].*revoke|invalidate\s*[\.(].*token|add\s*[\.(].*blacklist)").unwrap()
+    })
+}
+
+fn ts_redis_session_del_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(?:del\s*[\.(].*session|session\s*[\.(].*del|redis\s*[\.(].*del|destroy\s*[\.(].*session)").unwrap()
+    })
+}
+
+fn ts_cookie_clear_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(?:clearCookie|delete_cookie|set_cookie.*expires\s*=\s*0|remove_cookie|res\.cookie\s*\(.*maxAge\s*:\s*0)").unwrap()
+    })
+}
+
+fn ts_session_destroy_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(?:session\.destroy|session\.invalidate|logout.*session|session\.clear)").unwrap()
+    })
+}
+
+fn classify_session_invalidation(line: &str) -> Option<SessionInvalidationType> {
+    if ts_jwt_blacklist_re().is_match(line) {
+        Some(SessionInvalidationType::JwtBlacklist)
+    } else if ts_redis_session_del_re().is_match(line) {
+        Some(SessionInvalidationType::RedisSessionDelete)
+    } else if ts_cookie_clear_re().is_match(line) {
+        Some(SessionInvalidationType::CookieClear)
+    } else if ts_session_destroy_re().is_match(line) {
+        Some(SessionInvalidationType::SessionDestroy)
+    } else {
+        None
+    }
+}
+
+fn scan_session_invalidation_ts(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        if let Some(inv_type) = classify_session_invalidation(line_text) {
+            let entry = SessionInvalidationRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                invalidation_type: inv_type,
+            };
+            store
+                .session_invalidation_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
     }
 }
 

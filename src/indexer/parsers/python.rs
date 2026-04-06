@@ -10,8 +10,10 @@ use super::{
 };
 use crate::indexer::store::{normalize_api_path, IndexStore};
 use crate::indexer::types::{
-    ApiEndpoint, DbPoolRef, DbWriteOp, DbWriteRef, EnvRef, EventConsumer, EventProducer, FileInfo,
-    Framework, HardcodedCredential, HttpMethod, Language, RedisKeyRef, RedisOp, RlsContextRef,
+    ApiEndpoint, DbPoolRef, DbWriteOp, DbWriteRef, EnvRef, ErrorHandlingRef, ErrorHandlingType,
+    EventConsumer, EventProducer, FileInfo, Framework, FunctionSignature, HardcodedCredential,
+    HttpMethod, Language, RedisKeyRef, RedisOp, RlsContextRef, RoleCheckRef, RoleCheckType,
+    SecondaryAuthRef, SecondaryAuthType, SessionInvalidationRef, SessionInvalidationType,
     SqlQueryOp, SqlQueryRef, StubIndicator, StubType,
 };
 
@@ -48,6 +50,11 @@ impl LanguageParser for PythonParser {
         scan_hardcoded_creds_py(path, source, store);
         scan_sql_query_refs_py(path, source, store);
         scan_db_pool_refs_py(path, source, store);
+        scan_secondary_auth_py(path, source, store);
+        scan_error_handling_py(path, source, store);
+        scan_role_checks_py(path, source, store);
+        scan_function_signatures_py(path, source, &tree, &py_language, store);
+        scan_session_invalidation_py(path, source, store);
 
         Ok(())
     }
@@ -647,6 +654,277 @@ fn scan_sql_query_refs_py(path: &Path, source: &[u8], store: &IndexStore) {
                 };
                 store.sql_query_refs.entry(table_name).or_default().push(entry);
             }
+        }
+    }
+}
+
+fn py_secondary_auth_call_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)\b(verify_otp|check_otp|validate_2fa|confirm_password|validate_csrf|check_totp|verify_totp|verify_code)\s*\(").unwrap()
+    })
+}
+
+fn py_secondary_auth_param_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)\b(otp|totp|verification_code|csrf_token|two_factor_code|mfa_code)\b").unwrap()
+    })
+}
+
+fn classify_secondary_auth_py(text: &str) -> SecondaryAuthType {
+    let lower = text.to_lowercase();
+    if lower.contains("csrf") {
+        SecondaryAuthType::CsrfToken
+    } else if lower.contains("2fa") || lower.contains("two_factor") || lower.contains("mfa") {
+        SecondaryAuthType::TwoFactor
+    } else if lower.contains("password") || lower.contains("confirm") {
+        SecondaryAuthType::PasswordConfirm
+    } else {
+        SecondaryAuthType::Otp
+    }
+}
+
+fn scan_secondary_auth_py(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let call_re = py_secondary_auth_call_re();
+    let param_re = py_secondary_auth_param_re();
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        let matched = call_re.find(line_text).or_else(|| param_re.find(line_text));
+        if let Some(mat) = matched {
+            let auth_type = classify_secondary_auth_py(mat.as_str());
+            let entry = SecondaryAuthRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                auth_type,
+                near_endpoint: None,
+            };
+            store
+                .secondary_auth_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+fn py_except_pass_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"except(?:\s+\w+(?:\s+as\s+\w+)?)?\s*:\s*(?:pass\s*$|\.\.\.\s*$)").unwrap()
+    })
+}
+
+fn scan_error_handling_py(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let except_pass_re = py_except_pass_re();
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        if except_pass_re.is_match(line_text.trim()) {
+            let entry = ErrorHandlingRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                error_type: ErrorHandlingType::EmptyExcept,
+                context: "except: pass".to_string(),
+            };
+            store
+                .error_handling_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+fn py_role_single_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)\brole\s*==\s*["']([^"']+)["']"#).unwrap()
+    })
+}
+
+fn py_role_in_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)\brole\s+in\s+\["#).unwrap()
+    })
+}
+
+fn is_middleware_file_py(path: &Path) -> bool {
+    let path_str = path.to_string_lossy().to_lowercase();
+    path_str.contains("middleware")
+        || path_str.contains("guard")
+        || path_str.contains("auth")
+        || path_str.contains("permission")
+}
+
+fn scan_role_checks_py(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let single_re = py_role_single_re();
+    let in_re = py_role_in_re();
+    let in_middleware = is_middleware_file_py(path);
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        for cap in single_re.captures_iter(line_text) {
+            if let Some(role_val) = cap.get(1) {
+                let entry = RoleCheckRef {
+                    file: path.to_path_buf(),
+                    line: line_num + 1,
+                    check_type: RoleCheckType::SingleValue,
+                    role_value: role_val.as_str().to_string(),
+                    is_middleware: in_middleware,
+                };
+                store
+                    .role_check_refs
+                    .entry(path.to_path_buf())
+                    .or_default()
+                    .push(entry);
+            }
+        }
+
+        if in_re.is_match(line_text) {
+            let entry = RoleCheckRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                check_type: RoleCheckType::SetCheck,
+                role_value: "set_check".to_string(),
+                is_middleware: in_middleware,
+            };
+            store
+                .role_check_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+const PY_FUNCTIONS_QUERY: &str = r#"
+(function_definition
+  name: (identifier) @func_name
+  parameters: (parameters) @params
+  body: (block) @body)
+"#;
+
+fn scan_function_signatures_py(
+    path: &Path,
+    source: &[u8],
+    tree: &tree_sitter::Tree,
+    language: &tree_sitter::Language,
+    store: &IndexStore,
+) {
+    run_query(PY_FUNCTIONS_QUERY, language, source, tree, |_m, captures| {
+        let name_cap = find_capture(captures, "func_name");
+        let params_cap = find_capture(captures, "params");
+        let body_cap = find_capture(captures, "body");
+
+        if let (Some((_, name, line)), Some((_, params_text, _)), Some((_, body_text, _))) =
+            (name_cap, params_cap, body_cap)
+        {
+            // Skip private/dunder methods
+            if name.starts_with('_') && !name.starts_with("__") {
+                return;
+            }
+
+            let params: Vec<String> = params_text
+                .trim_matches(|c| c == '(' || c == ')')
+                .split(',')
+                .map(|p| p.trim().to_string())
+                .filter(|p| !p.is_empty() && p != "self" && p != "cls")
+                .collect();
+
+            let body_hash = hash_source(body_text.as_bytes());
+
+            let entry = FunctionSignature {
+                file: path.to_path_buf(),
+                line: *line,
+                name: name.clone(),
+                params,
+                body_hash,
+                service_name: None,
+            };
+            store
+                .function_signatures
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    });
+}
+
+fn py_jwt_blacklist_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(?:blacklist|revoke\s*[\.(].*token|token\s*[\.(].*revoke|invalidate\s*[\.(].*token|add\s*[\.(].*blacklist)").unwrap()
+    })
+}
+
+fn py_redis_session_del_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(?:del\s*[\.(].*session|session\s*[\.(].*del|redis\s*[\.(].*del|destroy\s*[\.(].*session)").unwrap()
+    })
+}
+
+fn py_cookie_clear_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(?:delete_cookie|set_cookie.*expires\s*=\s*0|remove_cookie|response\.set_cookie\s*\(.*max_age\s*=\s*0)").unwrap()
+    })
+}
+
+fn py_session_destroy_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(?:session\.destroy|session\.invalidate|logout.*session|session\.clear|session\.flush|request\.session\.flush)").unwrap()
+    })
+}
+
+fn classify_session_invalidation_py(line: &str) -> Option<SessionInvalidationType> {
+    if py_jwt_blacklist_re().is_match(line) {
+        Some(SessionInvalidationType::JwtBlacklist)
+    } else if py_redis_session_del_re().is_match(line) {
+        Some(SessionInvalidationType::RedisSessionDelete)
+    } else if py_cookie_clear_re().is_match(line) {
+        Some(SessionInvalidationType::CookieClear)
+    } else if py_session_destroy_re().is_match(line) {
+        Some(SessionInvalidationType::SessionDestroy)
+    } else {
+        None
+    }
+}
+
+fn scan_session_invalidation_py(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        if let Some(inv_type) = classify_session_invalidation_py(line_text) {
+            let entry = SessionInvalidationRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                invalidation_type: inv_type,
+            };
+            store
+                .session_invalidation_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
         }
     }
 }
