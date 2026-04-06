@@ -69,7 +69,7 @@ fn compute_score(protected: usize, total: usize) -> u8 {
     ((protected as f64 / total as f64) * 100.0).round() as u8
 }
 
-fn build_summary(findings: &[Finding], protected: usize, total: usize, score: u8) -> String {
+fn build_summary(findings: &[Finding], _protected: usize, total: usize, score: u8) -> String {
     if total == 0 {
         return "No auth-path database write operations found -- nothing to check.".to_string();
     }

@@ -152,7 +152,7 @@ fn scanner_results_have_valid_scanner_ids() {
 }
 
 #[test]
-fn all_twelve_scanners_produce_results() {
+fn all_twenty_seven_scanners_produce_results() {
     let (config, index) = build_fixture_index();
     let root = fixtures_dir();
 

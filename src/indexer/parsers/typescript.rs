@@ -1182,6 +1182,13 @@ fn insecure_storage_re() -> &'static Regex {
     })
 }
 
+fn insecure_storage_bracket_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(localStorage|sessionStorage)\s*\[\s*['"](.*?token.*?|.*?jwt.*?|.*?auth.*?|.*?session.*?|.*?access.*?|.*?refresh.*?)['"]\s*\]"#).unwrap()
+    })
+}
+
 fn plain_cookie_token_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
@@ -1196,6 +1203,7 @@ fn scan_insecure_storage_ts(path: &Path, source: &[u8], store: &IndexStore) {
     };
 
     let storage_re = insecure_storage_re();
+    let bracket_re = insecure_storage_bracket_re();
     let cookie_re = plain_cookie_token_re();
 
     for (line_num, line_text) in source_str.lines().enumerate() {
@@ -1204,9 +1212,23 @@ fn scan_insecure_storage_ts(path: &Path, source: &[u8], store: &IndexStore) {
             continue;
         }
 
-        if let Some(cap) = storage_re.captures(line_text) {
-            let storage_name = cap.get(1).map(|m| m.as_str()).unwrap_or("");
-            let key_name = cap.get(3).map(|m| m.as_str().to_string()).unwrap_or_default();
+        // Match setItem/getItem pattern OR bracket notation (localStorage["token"])
+        let storage_match = storage_re
+            .captures(line_text)
+            .map(|cap| {
+                let name = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+                let key = cap.get(3).map(|m| m.as_str().to_string()).unwrap_or_default();
+                (name.to_string(), key)
+            })
+            .or_else(|| {
+                bracket_re.captures(line_text).map(|cap| {
+                    let name = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+                    let key = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+                    (name.to_string(), key)
+                })
+            });
+
+        if let Some((storage_name, key_name)) = storage_match {
             let storage_type = if storage_name.to_lowercase().contains("localstorage") {
                 InsecureStorageType::LocalStorage
             } else {
@@ -1311,7 +1333,7 @@ fn scan_rate_limit_ts(path: &Path, source: &[u8], store: &IndexStore) {
 fn audit_log_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"(?i)(audit\w*\.\w+|auditLog|audit_log|createAuditEntry|logAudit|recordAudit|emitAudit)\s*\(").unwrap()
+        Regex::new(r"(?i)(audit(Log|Service|Trail|Event|Logger)\.\w+|auditLog|audit_log|createAuditEntry|logAudit|recordAudit|emitAudit)\s*\(").unwrap()
     })
 }
 
@@ -1364,7 +1386,7 @@ fn scan_audit_log_ts(path: &Path, source: &[u8], store: &IndexStore) {
 fn test_bypass_phone_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r#"(?i)(phone|mobile|tel)\s*===?\s*['"](\d{11})['"]\s*\)"#).unwrap()
+        Regex::new(r#"(?i)(if|switch|case|\?)\s*.*?(phone|mobile|tel)\s*===?\s*['"]\+?(\d{7,15})['"]"#).unwrap()
     })
 }
 
@@ -1415,7 +1437,7 @@ fn scan_test_bypass_ts(path: &Path, source: &[u8], store: &IndexStore) {
         }
 
         let bypass = if let Some(cap) = phone_re.captures(line_text) {
-            Some((TestBypassType::HardcodedPhone, cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default()))
+            Some((TestBypassType::HardcodedPhone, cap.get(3).map(|m| m.as_str().to_string()).unwrap_or_default()))
         } else if let Some(cap) = email_re.captures(line_text) {
             Some((TestBypassType::HardcodedEmail, cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default()))
         } else if let Some(cap) = pwd_re.captures(line_text) {
@@ -1476,14 +1498,28 @@ fn scan_token_refresh_ts(path: &Path, source: &[u8], store: &IndexStore) {
         return;
     }
 
-    let has_revocation = source_str.lines().any(|l| revoke_re.is_match(l));
+    // Collect line numbers where revocation calls appear
+    let revocation_lines: Vec<usize> = source_str
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| revoke_re.is_match(l))
+        .map(|(i, _)| i)
+        .collect();
+
+    const PROXIMITY: usize = 50; // revocation should be within 50 lines of refresh
 
     for (line_num, line_text) in source_str.lines().enumerate() {
         if refresh_re.is_match(line_text) {
+            // Check if any revocation call is within proximity of this refresh endpoint
+            let has_nearby_revocation = revocation_lines.iter().any(|&rl| {
+                let diff = if rl > line_num { rl - line_num } else { line_num - rl };
+                diff <= PROXIMITY
+            });
+
             let entry = TokenRefreshRef {
                 file: path.to_path_buf(),
                 line: line_num + 1,
-                has_old_token_revocation: has_revocation,
+                has_old_token_revocation: has_nearby_revocation,
             };
             store
                 .token_refresh_refs

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use super::types::{Finding, ScanContext, ScanResult, Scanner, Severity};
@@ -91,18 +91,33 @@ impl Scanner for RateLimitingCoverage {
             };
         }
 
-        // Collect files that have any rate limiting reference.
-        let rate_limit_files: HashSet<PathBuf> = ctx
-            .index
-            .all_rate_limit_refs()
-            .into_iter()
-            .map(|r| r.file)
-            .collect();
+        // Group rate limit refs by file with their line numbers so we can check
+        // proximity rather than mere file-level co-occurrence.
+        const PROXIMITY_LINES: usize = 30;
+
+        let rate_limit_by_file: HashMap<PathBuf, Vec<usize>> = {
+            let mut map: HashMap<PathBuf, Vec<usize>> = HashMap::new();
+            for r in ctx.index.all_rate_limit_refs() {
+                map.entry(r.file).or_default().push(r.line);
+            }
+            map
+        };
 
         let mut findings = Vec::new();
 
         for ep in &auth_endpoints {
-            if !rate_limit_files.contains(&ep.file) {
+            let is_protected = rate_limit_by_file
+                .get(&ep.file)
+                .map(|lines| {
+                    lines.iter().any(|&rl_line| {
+                        // Rate limit should appear before or at the endpoint definition
+                        // (decorators/middleware are usually above the handler).
+                        rl_line <= ep.line && ep.line - rl_line <= PROXIMITY_LINES
+                    })
+                })
+                .unwrap_or(false);
+
+            if !is_protected {
                 findings.push(
                     Finding::new(
                         SCANNER_ID,

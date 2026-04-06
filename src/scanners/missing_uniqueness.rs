@@ -103,11 +103,17 @@ fn is_common_column(column: &str) -> bool {
 fn compute_score(findings: &[Finding], ctx: &ScanContext) -> u8 {
     let lookups = ctx.index.all_column_lookup_refs();
 
-    if lookups.is_empty() {
+    // Only count non-common-column lookups (same filter as find_missing_uniqueness)
+    let relevant: Vec<_> = lookups
+        .iter()
+        .filter(|l| !is_common_column(&l.column_name.to_lowercase()))
+        .collect();
+
+    if relevant.is_empty() {
         return 100;
     }
 
-    let total = lookups.len();
+    let total = relevant.len();
     let unconstrained = findings.len();
     let constrained = total.saturating_sub(unconstrained);
 

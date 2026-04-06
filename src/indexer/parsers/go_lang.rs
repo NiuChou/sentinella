@@ -1054,7 +1054,7 @@ fn scan_rate_limit_go(path: &Path, source: &[u8], store: &IndexStore) {
 fn audit_log_go_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"(?i)(audit\w*\.\w+|AuditLog|audit_log|CreateAuditEntry|LogAudit|RecordAudit|EmitAudit)\s*\(").unwrap()
+        Regex::new(r"(?i)(Audit(Log|Service|Trail|Event|Logger)\.\w+|AuditLog|audit_log|CreateAuditEntry|LogAudit|RecordAudit|EmitAudit)\s*\(").unwrap()
     })
 }
 
@@ -1092,7 +1092,7 @@ fn scan_audit_log_go(path: &Path, source: &[u8], store: &IndexStore) {
 fn test_bypass_phone_go_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r#"(?i)(phone|mobile|tel)\s*==\s*"(\d{11})""#).unwrap()
+        Regex::new(r#"(?i)(if|switch|case)\s*.*?(phone|mobile|tel)\s*==\s*"\+?(\d{7,15})""#).unwrap()
     })
 }
 
@@ -1135,7 +1135,7 @@ fn scan_test_bypass_go(path: &Path, source: &[u8], store: &IndexStore) {
         }
 
         let bypass = if let Some(cap) = phone_re.captures(line_text) {
-            Some((TestBypassType::HardcodedPhone, cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default()))
+            Some((TestBypassType::HardcodedPhone, cap.get(3).map(|m| m.as_str().to_string()).unwrap_or_default()))
         } else if let Some(cap) = email_re.captures(line_text) {
             Some((TestBypassType::HardcodedEmail, cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default()))
         } else if pwd_re.is_match(line_text) {
@@ -1194,14 +1194,26 @@ fn scan_token_refresh_go(path: &Path, source: &[u8], store: &IndexStore) {
         return;
     }
 
-    let has_revocation = source_str.lines().any(|l| revoke_re.is_match(l));
+    let revocation_lines: Vec<usize> = source_str
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| revoke_re.is_match(l))
+        .map(|(i, _)| i)
+        .collect();
+
+    const PROXIMITY: usize = 50;
 
     for (line_num, line_text) in source_str.lines().enumerate() {
         if refresh_re.is_match(line_text) {
+            let has_nearby_revocation = revocation_lines.iter().any(|&rl| {
+                let diff = if rl > line_num { rl - line_num } else { line_num - rl };
+                diff <= PROXIMITY
+            });
+
             let entry = TokenRefreshRef {
                 file: path.to_path_buf(),
                 line: line_num + 1,
-                has_old_token_revocation: has_revocation,
+                has_old_token_revocation: has_nearby_revocation,
             };
             store
                 .token_refresh_refs
@@ -1220,7 +1232,7 @@ fn scan_token_refresh_go(path: &Path, source: &[u8], store: &IndexStore) {
 fn transaction_go_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r#"(?i)(\.Begin\w*\s*\(|tx\.\w+|BEGIN\b|\.Transaction\s*\()"#).unwrap()
+        Regex::new(r#"(?i)(\.Begin\w*\s*\(|tx\.(Exec|Query|Commit|Rollback|Prepare)\s*\(|BEGIN\b|\.Transaction\s*\()"#).unwrap()
     })
 }
 

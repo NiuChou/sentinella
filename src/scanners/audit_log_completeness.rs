@@ -27,12 +27,12 @@ fn collect_auth_endpoint_files(ctx: &ScanContext) -> HashSet<PathBuf> {
         .collect()
 }
 
-/// Collect files containing destructive (DELETE) endpoints.
-fn collect_destructive_endpoint_files(ctx: &ScanContext) -> HashSet<PathBuf> {
+/// Collect files containing mutating (PUT, PATCH, DELETE) endpoints.
+fn collect_mutating_endpoint_files(ctx: &ScanContext) -> HashSet<PathBuf> {
     ctx.index
         .all_api_endpoints()
         .into_iter()
-        .filter(|ep| ep.method == HttpMethod::Delete)
+        .filter(|ep| matches!(ep.method, HttpMethod::Put | HttpMethod::Patch | HttpMethod::Delete))
         .map(|ep| ep.file)
         .collect()
 }
@@ -67,7 +67,7 @@ fn collect_audit_log_files(ctx: &ScanContext) -> HashSet<PathBuf> {
 /// Merge all state-changing file sets into a single deduplicated set.
 fn collect_all_state_changing_files(ctx: &ScanContext) -> HashSet<PathBuf> {
     let mut files = collect_auth_endpoint_files(ctx);
-    files.extend(collect_destructive_endpoint_files(ctx));
+    files.extend(collect_mutating_endpoint_files(ctx));
     files.extend(collect_session_invalidation_files(ctx));
     files.extend(collect_role_check_files(ctx));
     files
@@ -364,6 +364,52 @@ layers: {}
         assert_eq!(result.score, 0);
         assert_eq!(result.findings.len(), 1);
         assert!(result.findings[0].message.contains("resources.ts"));
+    }
+
+    #[test]
+    fn put_and_patch_endpoints_without_audit() {
+        let config = minimal_config();
+        let store = IndexStore::new();
+
+        let put_file = PathBuf::from("routes/settings.ts");
+        let patch_file = PathBuf::from("routes/profile.ts");
+
+        store.api_endpoints.insert(
+            "/settings".into(),
+            vec![ApiEndpoint {
+                method: HttpMethod::Put,
+                path: "/settings".to_string(),
+                file: put_file.clone(),
+                line: 10,
+                framework: Framework::Express,
+            }],
+        );
+
+        store
+            .api_endpoints
+            .entry("/profile".into())
+            .or_default()
+            .push(ApiEndpoint {
+                method: HttpMethod::Patch,
+                path: "/profile".to_string(),
+                file: patch_file.clone(),
+                line: 15,
+                framework: Framework::Express,
+            });
+
+        let ctx = ScanContext {
+            config: &config,
+            index: &store,
+            root_dir: Path::new("/tmp"),
+        };
+
+        let result = AuditLogCompleteness.scan(&ctx);
+        assert_eq!(result.score, 0);
+        assert_eq!(result.findings.len(), 2);
+
+        let messages: Vec<&str> = result.findings.iter().map(|f| f.message.as_str()).collect();
+        assert!(messages.iter().any(|m| m.contains("settings.ts")));
+        assert!(messages.iter().any(|m| m.contains("profile.ts")));
     }
 
     #[test]
