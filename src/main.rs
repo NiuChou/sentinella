@@ -12,7 +12,7 @@ use sentinella::indexer::build_index_multi;
 use sentinella::reporters::gap::{self, ReportFormat};
 use sentinella::reporters::matrix;
 use sentinella::reporters::task_decomposer;
-use sentinella::scanners::types::ScanContext;
+use sentinella::scanners::types::{Confidence, ScanContext};
 use sentinella::scanners::{create_scanners, run_scanners};
 
 // ---------------------------------------------------------------------------
@@ -49,6 +49,14 @@ enum Command {
         /// Minimum coverage percentage to pass
         #[arg(long)]
         min_coverage: Option<u8>,
+
+        /// Minimum confidence level to display (suspect, likely, confirmed)
+        #[arg(long, value_enum)]
+        min_confidence: Option<CliConfidence>,
+
+        /// Show all findings including low-confidence suspects
+        #[arg(long)]
+        show_suspect: bool,
     },
 
     /// Generate a starter config file
@@ -98,6 +106,25 @@ enum CliDispatchTarget {
     Stdout,
     Notion,
     Github,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum CliConfidence {
+    Suspect,
+    Likely,
+    Confirmed,
+}
+
+// ---------------------------------------------------------------------------
+// Confidence conversion
+// ---------------------------------------------------------------------------
+
+fn to_confidence(cli: &CliConfidence) -> Confidence {
+    match cli {
+        CliConfidence::Suspect => Confidence::Suspect,
+        CliConfidence::Likely => Confidence::Likely,
+        CliConfidence::Confirmed => Confidence::Confirmed,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -165,6 +192,8 @@ fn handle_check(
     scanner_filter: Option<String>,
     format: CliOutputFormat,
     min_coverage: Option<u8>,
+    min_confidence: Option<CliConfidence>,
+    show_suspect: bool,
 ) -> Result<()> {
     let cfg = load_project_config(config_path.as_deref(), &dir)?;
 
@@ -178,7 +207,8 @@ fn handle_check(
     let index = build_project_index_for_arch(&dir, &cfg, &arch)?;
     let results = run_project_scanners(&cfg, &index, &dir, scanner_filter.as_deref())?;
 
-    render_check_output(&results, &cfg, &format);
+    let confidence_threshold = min_confidence.as_ref().map(to_confidence);
+    render_check_output(&results, &cfg, &format, confidence_threshold, show_suspect);
 
     exit_on_coverage_failure(&results, min_coverage);
     Ok(())
@@ -292,11 +322,13 @@ fn render_check_output(
     results: &[sentinella::scanners::types::ScanResult],
     cfg: &config::Config,
     format: &CliOutputFormat,
+    min_confidence: Option<Confidence>,
+    show_suspect: bool,
 ) {
     matrix::render_matrix(results, cfg);
 
     let report_format = to_report_format(format);
-    let gap_output = gap::render_gap_report(results, report_format);
+    let gap_output = gap::render_gap_report(results, report_format, min_confidence, show_suspect);
     print!("{gap_output}");
 }
 
@@ -358,7 +390,17 @@ fn main() -> Result<()> {
             scanner,
             format,
             min_coverage,
-        } => handle_check(cli.config, dir, scanner, format, min_coverage),
+            min_confidence,
+            show_suspect,
+        } => handle_check(
+            cli.config,
+            dir,
+            scanner,
+            format,
+            min_coverage,
+            min_confidence,
+            show_suspect,
+        ),
         Command::Dispatch {
             dir,
             target,

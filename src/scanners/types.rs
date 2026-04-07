@@ -25,6 +25,26 @@ impl fmt::Display for Severity {
     }
 }
 
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum Confidence {
+    Suspect,
+    Likely,
+    Confirmed,
+}
+
+impl fmt::Display for Confidence {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Confidence::Suspect => write!(f, "suspect"),
+            Confidence::Likely => write!(f, "likely"),
+            Confidence::Confirmed => write!(f, "confirmed"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Finding {
     pub scanner: String,
@@ -36,6 +56,12 @@ pub struct Finding {
     pub line: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggestion: Option<String>,
+    #[serde(default = "default_confidence")]
+    pub confidence: Confidence,
+}
+
+fn default_confidence() -> Confidence {
+    Confidence::Confirmed
 }
 
 impl Finding {
@@ -47,7 +73,12 @@ impl Finding {
             file: None,
             line: None,
             suggestion: None,
+            confidence: Confidence::Confirmed,
         }
+    }
+
+    pub fn with_confidence(self, confidence: Confidence) -> Self {
+        Self { confidence, ..self }
     }
 
     pub fn with_file(self, file: impl Into<PathBuf>) -> Self {

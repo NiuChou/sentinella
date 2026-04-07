@@ -12,7 +12,8 @@ expression: json
         "message": "Stub detected in useData.ts",
         "file": "src/hooks/useData.ts",
         "line": 10,
-        "suggestion": "Replace with real API call"
+        "suggestion": "Replace with real API call",
+        "confidence": "confirmed"
       }
     ],
     "score": 75,
@@ -26,7 +27,8 @@ expression: json
         "severity": "warning",
         "message": "TODO residue found",
         "file": "src/api.ts",
-        "line": 42
+        "line": 42,
+        "confidence": "confirmed"
       }
     ],
     "score": 90,

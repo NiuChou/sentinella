@@ -11,5 +11,6 @@ expression: results
     - scanner: S6
       severity: warning
       message: TODO residue in api.ts
+      confidence: confirmed
   score: 85
   summary: 1 residue marker

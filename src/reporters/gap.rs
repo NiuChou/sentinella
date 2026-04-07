@@ -1,6 +1,6 @@
 use owo_colors::OwoColorize;
 
-use crate::scanners::types::{Finding, ScanResult, Severity};
+use crate::scanners::types::{Confidence, Finding, ScanResult, Severity};
 
 /// Output format for gap reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -12,13 +12,75 @@ pub enum ReportFormat {
 }
 
 /// Render a gap report in the requested format.
-pub fn render_gap_report(results: &[ScanResult], format: ReportFormat) -> String {
-    match format {
-        ReportFormat::Terminal => render_terminal(results),
-        ReportFormat::Json => render_json(results),
-        ReportFormat::Markdown => render_markdown(results),
-        ReportFormat::Notion => render_notion(results),
+///
+/// Findings are filtered by confidence level before rendering:
+/// - Default (no flags): show Confirmed + Likely only
+/// - `show_suspect = true`: show all including Suspect
+/// - `min_confidence = Some(Confirmed)`: show only Confirmed
+/// - `min_confidence = Some(Suspect)`: same as show_suspect
+pub fn render_gap_report(
+    results: &[ScanResult],
+    format: ReportFormat,
+    min_confidence: Option<Confidence>,
+    show_suspect: bool,
+) -> String {
+    let threshold = if show_suspect {
+        Confidence::Suspect
+    } else {
+        min_confidence.unwrap_or(Confidence::Likely)
+    };
+
+    let filtered_results = filter_results_by_confidence(results, threshold);
+
+    let total_all: usize = results.iter().map(|r| r.findings.len()).sum();
+    let total_filtered: usize = filtered_results.iter().map(|r| r.findings.len()).sum();
+
+    let mut output = match format {
+        ReportFormat::Terminal => render_terminal(&filtered_results),
+        ReportFormat::Json => render_json(&filtered_results),
+        ReportFormat::Markdown => render_markdown(&filtered_results),
+        ReportFormat::Notion => render_notion(&filtered_results),
+    };
+
+    if total_filtered < total_all {
+        let summary = format_filter_summary(threshold, total_filtered, total_all);
+        output.push_str(&summary);
     }
+
+    output
+}
+
+/// Build filtered copies of scan results, keeping only findings at or above the threshold.
+fn filter_results_by_confidence(results: &[ScanResult], threshold: Confidence) -> Vec<ScanResult> {
+    results
+        .iter()
+        .map(|r| {
+            let filtered_findings: Vec<Finding> = r
+                .findings
+                .iter()
+                .filter(|f| f.confidence >= threshold)
+                .cloned()
+                .collect();
+            ScanResult {
+                scanner: r.scanner.clone(),
+                findings: filtered_findings,
+                score: r.score,
+                summary: r.summary.clone(),
+            }
+        })
+        .collect()
+}
+
+/// Format a summary line showing how many findings were filtered out.
+fn format_filter_summary(threshold: Confidence, shown: usize, total: usize) -> String {
+    let level_label = match threshold {
+        Confidence::Confirmed => "Confirmed",
+        Confidence::Likely => "Confirmed + Likely",
+        Confidence::Suspect => "all",
+    };
+    format!(
+        "\n  Showing {shown} findings ({level_label}). Use --show-suspect to see all {total}.\n"
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -259,7 +321,7 @@ mod tests {
     #[test]
     fn json_round_trips() {
         let results = sample_results();
-        let json = render_gap_report(&results, ReportFormat::Json);
+        let json = render_gap_report(&results, ReportFormat::Json, None, false);
         let parsed: Vec<ScanResult> = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.len(), 1);
     }
@@ -267,14 +329,14 @@ mod tests {
     #[test]
     fn markdown_contains_header() {
         let results = sample_results();
-        let md = render_gap_report(&results, ReportFormat::Markdown);
+        let md = render_gap_report(&results, ReportFormat::Markdown, None, false);
         assert!(md.starts_with("# Sentinella Gap Report"));
     }
 
     #[test]
     fn notion_contains_callout_blocks() {
         let results = sample_results();
-        let notion = render_gap_report(&results, ReportFormat::Notion);
+        let notion = render_gap_report(&results, ReportFormat::Notion, None, false);
         assert!(notion.starts_with("# Sentinella Gap Report"));
         // Critical findings produce a red callout
         assert!(notion.contains("> \u{1f534} **Critical**"));
@@ -292,7 +354,7 @@ mod tests {
             score: 50,
             summary: String::new(),
         }];
-        let notion = render_gap_report(&results, ReportFormat::Notion);
+        let notion = render_gap_report(&results, ReportFormat::Notion, None, false);
         assert!(notion.contains("*Hint: try this*"));
     }
 
@@ -322,7 +384,7 @@ mod tests {
             },
         ];
 
-        let json = render_gap_report(&results, ReportFormat::Json);
+        let json = render_gap_report(&results, ReportFormat::Json, None, false);
         insta::assert_snapshot!("gap_report_json", json);
     }
 
@@ -335,7 +397,7 @@ mod tests {
             summary: "Clean".into(),
         }];
 
-        let json = render_gap_report(&results, ReportFormat::Json);
+        let json = render_gap_report(&results, ReportFormat::Json, None, false);
         insta::assert_snapshot!("gap_report_json_empty", json);
     }
 }
