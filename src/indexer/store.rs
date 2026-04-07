@@ -325,6 +325,7 @@ impl IndexStore {
             .collect()
     }
 
+    /// Deprecated: use `evidence_store.has_protection(file, line, EvidenceKind::Auth)` instead.
     pub fn has_middleware_protection(&self, file: &Path, line: usize) -> bool {
         self.middleware_scopes
             .get(file)
