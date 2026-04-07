@@ -1,10 +1,193 @@
-kind: rule-pack
-name: express
-version: "0.1"
-languages: [javascript, typescript]
+# =============================================================================
+# Sentinella Rule Pack — Express
+# =============================================================================
+#
+# Detects Express.js projects and provides evidence rules for:
+#   - Auth middleware (passport, jwt, custom auth)
+#   - Rate limiting (express-rate-limit)
+#   - CSRF protection (csurf, lusca)
+#   - Security headers (helmet)
+#   - Data-source access (DB queries, HTTP clients)
+#   - Error-handling & sensitive-logging overrides
+#
+# Schema: src/rule_pack/schema.rs
+# =============================================================================
+
+name: Express
+version: "1.0.0"
+description: >
+  Comprehensive rule pack for Express.js applications. Covers middleware-based
+  auth patterns, rate limiting, CSRF protection, security headers, and common
+  data access patterns via ORMs and HTTP clients.
+
+# ---------------------------------------------------------------------------
+# Detection — how Sentinella decides this pack applies
+# ---------------------------------------------------------------------------
 detect:
-  package_json:
-    dependencies: ["express"]
-routes: []
-protection_evidence: []
-data_source_evidence: []
+  package_json_dependencies:
+    - "express"
+  file_patterns:
+    - "**/routes/**"
+    - "**/middleware/**"
+
+# ---------------------------------------------------------------------------
+# Protection evidence — middleware and patterns that prove security controls
+# ---------------------------------------------------------------------------
+protection_evidence:
+
+  # --- Authentication middleware ------------------------------------------------
+
+  - id: express-auth-middleware
+    description: >
+      Router-level auth middleware — .use() calls that wire in authentication
+      such as passport.authenticate, requireAuth, verifyToken, etc.
+    type: regex
+    # Matches .use( followed by common auth middleware names.
+    # Captures passport.authenticate, requireAuth, verifyToken, isAuthenticated, jwt, etc.
+    pattern: '\.use\(\s*(?:auth|require\w*Auth|passport\.authenticate|jwt|verifyToken|isAuthenticated|ensureAuthenticated|protect)'
+    kind: auth
+    confidence: 0.85
+    scope: block
+
+  - id: express-passport-strategy
+    description: >
+      Passport strategy configuration — proves authentication infrastructure
+      is wired up (JWT, local, OAuth, etc.).
+    type: regex
+    pattern: 'passport\.use\(\s*(?:new\s+)?\w+Strategy'
+    kind: auth
+    confidence: 0.80
+    scope: file
+
+  - id: express-jwt-verify
+    description: >
+      Direct JWT verification calls — jwt.verify or jsonwebtoken usage
+      in middleware or route handlers.
+    type: regex
+    pattern: '(?:jwt|jsonwebtoken)\.verify\s*\('
+    kind: auth
+    confidence: 0.90
+    scope: function
+
+  # --- Rate limiting ------------------------------------------------------------
+
+  - id: express-rate-limit
+    description: >
+      express-rate-limit or similar rate-limiting middleware.
+    type: regex
+    pattern: '(?:rateLimit|RateLimit|rateLimiter|expressRateLimit|express-rate-limit|slowDown)'
+    kind: rate-limit
+    confidence: 0.85
+    scope: block
+
+  # --- CSRF protection ----------------------------------------------------------
+
+  - id: express-csrf
+    description: >
+      CSRF middleware — csurf, lusca.csrf, or csrf-related packages.
+    type: regex
+    pattern: '(?:csurf|lusca\.csrf|csrf\(\)|csrfProtection)'
+    kind: csrf
+    confidence: 0.85
+    scope: file
+
+  # --- Security headers ---------------------------------------------------------
+
+  - id: express-helmet
+    description: >
+      Helmet middleware — sets security-related HTTP headers (X-Frame-Options,
+      Content-Security-Policy, etc.). Not authentication per se, but a
+      security control. Tagged as auth at low confidence.
+    type: regex
+    pattern: 'helmet\s*\('
+    kind: auth
+    confidence: 0.60
+    scope: file
+
+  # --- CORS configuration -------------------------------------------------------
+
+  - id: express-cors
+    description: >
+      CORS middleware — cors() configuration. Not a protection by itself, but
+      its presence is useful context for security completeness analysis.
+    type: regex
+    pattern: 'cors\s*\('
+    kind: auth
+    confidence: 0.40
+    scope: file
+
+# ---------------------------------------------------------------------------
+# Data-source evidence — patterns indicating real data access (not stubs)
+# ---------------------------------------------------------------------------
+data_source_evidence:
+
+  - id: express-db-query
+    description: >
+      Direct database query patterns — .query(), Mongoose .find()/.findOne(),
+      .aggregate(), .create(), Sequelize/Knex/Prisma calls.
+    type: regex
+    # Broad but effective: catches most ORM and raw SQL patterns.
+    pattern: '(?:\.query\s*\(|\.find(?:One|ById|Many)?\s*\(|\.aggregate\s*\(|\.create\s*\(|\.insertMany\s*\(|\.updateOne\s*\(|\.deleteOne\s*\()'
+    kind: real-data
+    confidence: 0.75
+    scope: function
+
+  - id: express-prisma
+    description: >
+      Prisma ORM usage — prisma.model.method() calls.
+    type: regex
+    pattern: 'prisma\.\w+\.\w+\s*\('
+    kind: real-data
+    confidence: 0.85
+    scope: function
+
+  - id: express-fetch-call
+    description: >
+      HTTP client calls — fetch(), axios, got, superagent — indicating
+      real external service communication.
+    type: regex
+    pattern: '(?:fetch\s*\(|axios\.\w+\s*\(|got(?:\.(?:get|post|put|patch|delete))?\s*\(|superagent)'
+    kind: real-data
+    confidence: 0.80
+    scope: function
+
+  - id: express-redis
+    description: >
+      Redis client usage — proves real caching or session storage.
+    type: regex
+    pattern: '(?:redis\.(?:get|set|del|hget|hset|lpush|rpush)\s*\(|RedisStore|connectRedis)'
+    kind: real-data
+    confidence: 0.85
+    scope: function
+
+# ---------------------------------------------------------------------------
+# Error-handling overrides
+# ---------------------------------------------------------------------------
+error_handling:
+  safe_ignore_patterns:
+    - pattern: '\.close\(\)'
+      reason: >
+        Resource cleanup calls (DB connections, streams) are safe to leave
+        without explicit error handling.
+    - pattern: 'server\.close\('
+      reason: >
+        Graceful shutdown — Express server.close() during SIGTERM handling
+        is expected and safe.
+    - pattern: '\.end\(\)'
+      reason: >
+        Response.end() or stream.end() during cleanup is safe.
+    - pattern: 'process\.on\(\s*[''"](?:SIGTERM|SIGINT)[''"]'
+      reason: >
+        Signal handlers for graceful shutdown are safe.
+
+# ---------------------------------------------------------------------------
+# Sensitive-logging overrides
+# ---------------------------------------------------------------------------
+sensitive_logging:
+  safe_patterns:
+    - "token expired"
+    - "token_type"
+    - "token invalid"
+    - "invalid token"
+    - "bearer"
+    - "grant_type"
