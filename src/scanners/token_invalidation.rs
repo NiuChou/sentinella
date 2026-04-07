@@ -20,8 +20,8 @@ struct StateChangeTarget {
     has_api_endpoint: bool,
 }
 
-/// Keywords in API paths that indicate user state change endpoints.
-const STATE_CHANGE_PATH_KEYWORDS: &[&str] = &[
+/// Default keywords in API paths that indicate user state change endpoints.
+const DEFAULT_STATE_CHANGE_PATH_KEYWORDS: &[&str] = &[
     "delete",
     "deactivate",
     "suspend",
@@ -51,19 +51,19 @@ fn soft_delete_tables(ctx: &ScanContext) -> HashSet<String> {
 
 /// Check if a file contains a state-change API endpoint (DELETE method or
 /// path containing state change keywords).
-fn file_has_state_change_endpoint(ctx: &ScanContext, file: &PathBuf) -> bool {
+fn file_has_state_change_endpoint(ctx: &ScanContext, file: &PathBuf, keywords: &[&str]) -> bool {
     let endpoints = ctx.index.all_api_endpoints();
     endpoints.iter().any(|ep| {
         ep.file == *file
             && (ep.method == HttpMethod::Delete
-                || STATE_CHANGE_PATH_KEYWORDS
+                || keywords
                     .iter()
                     .any(|kw| ep.path.to_lowercase().contains(kw)))
     })
 }
 
 /// Collect state change targets from SQL UPDATE/DELETE queries.
-fn collect_sql_state_changes(ctx: &ScanContext) -> Vec<StateChangeTarget> {
+fn collect_sql_state_changes(ctx: &ScanContext, keywords: &[&str]) -> Vec<StateChangeTarget> {
     let sd_tables = soft_delete_tables(ctx);
 
     ctx.index
@@ -74,7 +74,7 @@ fn collect_sql_state_changes(ctx: &ScanContext) -> Vec<StateChangeTarget> {
                 || (r.operation == SqlQueryOp::Update && sd_tables.contains(&r.table_name))
         })
         .map(|r| {
-            let has_api = file_has_state_change_endpoint(ctx, &r.file);
+            let has_api = file_has_state_change_endpoint(ctx, &r.file, keywords);
             StateChangeTarget {
                 description: format!("SQL {} on '{}'", r.operation_label(), r.table_name),
                 file: r.file,
@@ -89,6 +89,7 @@ fn collect_sql_state_changes(ctx: &ScanContext) -> Vec<StateChangeTarget> {
 fn collect_db_write_state_changes(
     ctx: &ScanContext,
     seen: &HashSet<PathBuf>,
+    keywords: &[&str],
 ) -> Vec<StateChangeTarget> {
     let sd_tables = soft_delete_tables(ctx);
 
@@ -101,7 +102,7 @@ fn collect_db_write_state_changes(
                     || (r.operation == DbWriteOp::Update && sd_tables.contains(&r.table_name)))
         })
         .map(|r| {
-            let has_api = file_has_state_change_endpoint(ctx, &r.file);
+            let has_api = file_has_state_change_endpoint(ctx, &r.file, keywords);
             StateChangeTarget {
                 description: format!("DB {} on '{}'", r.operation_label(), r.table_name),
                 file: r.file,
@@ -143,15 +144,29 @@ impl Scanner for TokenInvalidation {
     }
 
     fn scan(&self, ctx: &ScanContext) -> ScanResult {
+        // Read trigger fields from config override or fall back to defaults
+        let config_triggers: Vec<String> = ctx
+            .config
+            .scanner_overrides
+            .s18
+            .as_ref()
+            .map(|c| c.trigger_fields.clone())
+            .unwrap_or_default();
+        let state_kw: Vec<&str> = if config_triggers.is_empty() {
+            DEFAULT_STATE_CHANGE_PATH_KEYWORDS.to_vec()
+        } else {
+            config_triggers.iter().map(|s| s.as_str()).collect()
+        };
+
         let invalidation_files = files_with_invalidation(ctx);
         let mut findings: Vec<Finding> = Vec::new();
 
         // Phase 1: SQL-level state changes
-        let sql_targets = collect_sql_state_changes(ctx);
+        let sql_targets = collect_sql_state_changes(ctx, &state_kw);
         let sql_files: HashSet<PathBuf> = sql_targets.iter().map(|t| t.file.clone()).collect();
 
         // Phase 2: ORM-level state changes (avoid duplicates)
-        let db_targets = collect_db_write_state_changes(ctx, &sql_files);
+        let db_targets = collect_db_write_state_changes(ctx, &sql_files, &state_kw);
 
         // Merge and deduplicate
         let all_targets: Vec<StateChangeTarget> =
@@ -266,6 +281,7 @@ mod tests {
             required_layers: Default::default(),
             linked_repos: Vec::new(),
             suppress: None,
+            scanner_overrides: Default::default(),
         }
     }
 

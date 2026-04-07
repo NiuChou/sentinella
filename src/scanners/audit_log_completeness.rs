@@ -11,17 +11,18 @@ const SCANNER_DESC: &str =
 
 pub struct AuditLogCompleteness;
 
-/// Path segments that indicate authentication-related endpoints.
-const AUTH_PATH_KEYWORDS: &[&str] = &["login", "logout", "register", "signup", "signin", "signout"];
+/// Default path segments that indicate authentication-related endpoints.
+const DEFAULT_AUTH_PATH_KEYWORDS: &[&str] =
+    &["login", "logout", "register", "signup", "signin", "signout"];
 
 /// Collect files containing auth endpoints (login, logout, register).
-fn collect_auth_endpoint_files(ctx: &ScanContext) -> HashSet<PathBuf> {
+fn collect_auth_endpoint_files(ctx: &ScanContext, keywords: &[&str]) -> HashSet<PathBuf> {
     ctx.index
         .all_api_endpoints()
         .into_iter()
         .filter(|ep| {
             let lower = ep.path.to_lowercase();
-            AUTH_PATH_KEYWORDS.iter().any(|kw| lower.contains(kw))
+            keywords.iter().any(|kw| lower.contains(kw))
         })
         .map(|ep| ep.file)
         .collect()
@@ -70,8 +71,8 @@ fn collect_audit_log_files(ctx: &ScanContext) -> HashSet<PathBuf> {
 }
 
 /// Merge all state-changing file sets into a single deduplicated set.
-fn collect_all_state_changing_files(ctx: &ScanContext) -> HashSet<PathBuf> {
-    let mut files = collect_auth_endpoint_files(ctx);
+fn collect_all_state_changing_files(ctx: &ScanContext, auth_keywords: &[&str]) -> HashSet<PathBuf> {
+    let mut files = collect_auth_endpoint_files(ctx, auth_keywords);
     files.extend(collect_mutating_endpoint_files(ctx));
     files.extend(collect_session_invalidation_files(ctx));
     files.extend(collect_role_check_files(ctx));
@@ -100,7 +101,21 @@ impl Scanner for AuditLogCompleteness {
     }
 
     fn scan(&self, ctx: &ScanContext) -> ScanResult {
-        let state_changing_files = collect_all_state_changing_files(ctx);
+        // Read audit keywords from config override or fall back to defaults
+        let config_keywords: Vec<String> = ctx
+            .config
+            .scanner_overrides
+            .s23
+            .as_ref()
+            .map(|c| c.audit_keywords.clone())
+            .unwrap_or_default();
+        let auth_kw: Vec<&str> = if config_keywords.is_empty() {
+            DEFAULT_AUTH_PATH_KEYWORDS.to_vec()
+        } else {
+            config_keywords.iter().map(|s| s.as_str()).collect()
+        };
+
+        let state_changing_files = collect_all_state_changing_files(ctx, &auth_kw);
         let audit_log_files = collect_audit_log_files(ctx);
         let mut findings: Vec<Finding> = Vec::new();
 

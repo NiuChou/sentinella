@@ -521,6 +521,7 @@ mod tests {
             required_layers: Default::default(),
             linked_repos: Default::default(),
             suppress: None,
+            scanner_overrides: Default::default(),
         }
     }
 

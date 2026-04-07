@@ -5,6 +5,22 @@ use crate::config::schema::EXCLUDED_VAR_PREFIXES;
 
 use super::types::{Finding, ScanContext, ScanResult, Scanner, Severity};
 
+/// Resolve excluded var prefixes: config override or hardcoded defaults.
+fn resolve_exclude_var_prefixes(ctx: &ScanContext) -> Vec<String> {
+    ctx.config
+        .scanner_overrides
+        .s11
+        .as_ref()
+        .map(|c| c.exclude_var_prefixes.clone())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| {
+            EXCLUDED_VAR_PREFIXES
+                .iter()
+                .map(|s| (*s).to_string())
+                .collect()
+        })
+}
+
 const SCANNER_ID: &str = "S11";
 const UNSAFE_DEFAULTS: &[&str] = &["localhost", "127.0.0.1"];
 
@@ -29,7 +45,16 @@ impl Scanner for EnvConfigDrift {
         let exclude_paths = &ctx.config.env.exclude_paths;
         let exclude_vars = &ctx.config.env.exclude_vars;
 
-        let ref_vars = collect_filtered_var_names(&ctx.index.env_refs, exclude_paths, exclude_vars);
+        // Resolve exclude_var_prefixes from config override or defaults
+        let config_prefixes = resolve_exclude_var_prefixes(ctx);
+        let prefix_strs: Vec<&str> = config_prefixes.iter().map(|s| s.as_str()).collect();
+
+        let ref_vars = collect_filtered_var_names_with_prefixes(
+            &ctx.index.env_refs,
+            exclude_paths,
+            exclude_vars,
+            &prefix_strs,
+        );
         let config_vars = collect_var_names(&ctx.index.env_configs);
 
         if ref_vars.is_empty() && config_vars.is_empty() {
@@ -98,7 +123,13 @@ impl Scanner for EnvConfigDrift {
         }
 
         // Unsafe defaults: env refs with defaults containing localhost or 127.0.0.1
-        check_unsafe_defaults(ctx, &mut findings, exclude_paths, exclude_vars);
+        check_unsafe_defaults(
+            ctx,
+            &mut findings,
+            exclude_paths,
+            exclude_vars,
+            &prefix_strs,
+        );
 
         let all_vars: HashSet<&String> = ref_vars.union(&config_vars).collect();
         let aligned_count = ref_vars.iter().filter(|v| config_vars.contains(*v)).count();
@@ -143,16 +174,32 @@ fn collect_var_names<V>(map: &dashmap::DashMap<String, Vec<V>>) -> HashSet<Strin
 }
 
 /// Collect variable names from env_refs, excluding vars that match excluded
-/// paths or excluded variable names/prefixes.
+/// paths or excluded variable names/prefixes (using hardcoded defaults).
+#[cfg(test)]
 fn collect_filtered_var_names(
     map: &dashmap::DashMap<String, Vec<crate::indexer::types::EnvRef>>,
     exclude_paths: &[String],
     exclude_vars: &[String],
 ) -> HashSet<String> {
+    collect_filtered_var_names_with_prefixes(
+        map,
+        exclude_paths,
+        exclude_vars,
+        EXCLUDED_VAR_PREFIXES,
+    )
+}
+
+/// Collect variable names with configurable prefix exclusion.
+fn collect_filtered_var_names_with_prefixes(
+    map: &dashmap::DashMap<String, Vec<crate::indexer::types::EnvRef>>,
+    exclude_paths: &[String],
+    exclude_vars: &[String],
+    var_prefixes: &[&str],
+) -> HashSet<String> {
     map.iter()
         .filter(|entry| {
             let var_name = entry.key();
-            if is_excluded_var(var_name, exclude_vars) {
+            if is_excluded_var_with_prefixes(var_name, exclude_vars, var_prefixes) {
                 return false;
             }
             // Keep the var if at least one ref is in a non-excluded path
@@ -173,14 +220,22 @@ fn is_excluded_path(file: &Path, exclude_paths: &[String]) -> bool {
         .any(|excl| path_str.contains(excl.as_str()))
 }
 
-/// Check whether a variable name should be excluded by exact match or prefix.
+/// Check whether a variable name should be excluded by exact match or prefix (using hardcoded defaults).
+#[cfg(test)]
 fn is_excluded_var(var_name: &str, exclude_vars: &[String]) -> bool {
+    is_excluded_var_with_prefixes(var_name, exclude_vars, EXCLUDED_VAR_PREFIXES)
+}
+
+/// Check exclusion with configurable prefixes.
+fn is_excluded_var_with_prefixes(
+    var_name: &str,
+    exclude_vars: &[String],
+    prefixes: &[&str],
+) -> bool {
     if exclude_vars.iter().any(|ev| ev == var_name) {
         return true;
     }
-    EXCLUDED_VAR_PREFIXES
-        .iter()
-        .any(|prefix| var_name.starts_with(prefix))
+    prefixes.iter().any(|prefix| var_name.starts_with(prefix))
 }
 
 const CONNECTION_KEYWORDS: &[&str] = &["url", "host", "endpoint", "addr", "port"];
@@ -206,6 +261,7 @@ fn check_unsafe_defaults(
     findings: &mut Vec<Finding>,
     exclude_paths: &[String],
     exclude_vars: &[String],
+    var_prefixes: &[&str],
 ) {
     for entry in ctx.index.env_refs.iter() {
         for env_ref in entry.value() {
@@ -215,7 +271,7 @@ fn check_unsafe_defaults(
             if is_excluded_path(&env_ref.file, exclude_paths) {
                 continue;
             }
-            if is_excluded_var(&env_ref.var_name, exclude_vars) {
+            if is_excluded_var_with_prefixes(&env_ref.var_name, exclude_vars, var_prefixes) {
                 continue;
             }
 
@@ -421,6 +477,7 @@ mod tests {
             required_layers: Default::default(),
             linked_repos: Vec::new(),
             suppress: None,
+            scanner_overrides: Default::default(),
         };
         let store = IndexStore::new();
 

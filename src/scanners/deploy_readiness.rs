@@ -177,6 +177,7 @@ mod tests {
             required_layers: Default::default(),
             linked_repos: Vec::new(),
             suppress: None,
+            scanner_overrides: Default::default(),
         }
     }
 

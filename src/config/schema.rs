@@ -4,6 +4,94 @@ use std::collections::HashMap;
 use super::architecture::LinkedRepo;
 use crate::suppress::SuppressConfig;
 
+// ---------------------------------------------------------------------------
+// ScannerOverrides — per-scanner config tuning
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ScannerOverrides {
+    #[serde(default)]
+    pub s1: Option<S1Config>,
+    #[serde(default)]
+    pub s7: Option<S7Config>,
+    #[serde(default)]
+    pub s11: Option<S11Config>,
+    #[serde(default)]
+    pub s13: Option<S13Config>,
+    #[serde(default)]
+    pub s17: Option<S17Config>,
+    #[serde(default)]
+    pub s18: Option<S18Config>,
+    #[serde(default)]
+    pub s20: Option<S20Config>,
+    #[serde(default)]
+    pub s22: Option<S22Config>,
+    #[serde(default)]
+    pub s23: Option<S23Config>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct S1Config {
+    #[serde(default)]
+    pub stub_indicators: Vec<String>,
+    #[serde(default)]
+    pub real_data_indicators: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct S7Config {
+    #[serde(default)]
+    pub auth_keywords: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct S11Config {
+    #[serde(default)]
+    pub build_time_prefixes: Vec<String>,
+    #[serde(default)]
+    pub exclude_var_prefixes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct S13Config {
+    #[serde(default)]
+    pub require_2fa_paths: Vec<String>,
+    #[serde(default)]
+    pub skip_internal_paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct S17Config {
+    #[serde(default)]
+    pub safe_ignore_patterns: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct S18Config {
+    #[serde(default)]
+    pub trigger_fields: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct S20Config {
+    #[serde(default)]
+    pub safe_patterns: Vec<String>,
+    #[serde(default)]
+    pub sensitive_keywords: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct S22Config {
+    #[serde(default)]
+    pub rate_limit_keywords: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct S23Config {
+    #[serde(default)]
+    pub audit_keywords: Vec<String>,
+}
+
 fn default_version() -> String {
     "1.0".into()
 }
@@ -53,6 +141,8 @@ pub struct Config {
     /// Optional suppression configuration for silencing known false positives
     #[serde(default)]
     pub suppress: Option<SuppressConfig>,
+    #[serde(default)]
+    pub scanner_overrides: ScannerOverrides,
 }
 
 // ---------------------------------------------------------------------------
