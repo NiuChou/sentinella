@@ -50,7 +50,10 @@ fn execute_rule_packs(roots: &[&Path], store: &IndexStore) {
         let rule_packs = match crate::rule_pack::loader::resolve_rule_packs(root) {
             Ok(packs) => packs,
             Err(e) => {
-                eprintln!("[WARN] Failed to load rule packs for {}: {e}", root.display());
+                eprintln!(
+                    "[WARN] Failed to load rule packs for {}: {e}",
+                    root.display()
+                );
                 continue;
             }
         };
@@ -60,8 +63,8 @@ fn execute_rule_packs(roots: &[&Path], store: &IndexStore) {
         let active_packs: Vec<_> = rule_packs
             .into_iter()
             .filter(|pack| {
-                detected_stack.iter().any(|entry| entry.name == pack.name)
-                    || pack.name == "custom" // always load custom packs
+                detected_stack.iter().any(|entry| entry.name == pack.name) || pack.name == "custom"
+                // always load custom packs
             })
             .collect();
 

@@ -347,10 +347,7 @@ fn render_check_output(
 fn print_rule_pack_summary(dir: &std::path::Path) {
     let detected_stack = sentinella::rule_pack::detect::detect_tech_stack(dir);
     if detected_stack.is_empty() {
-        eprintln!(
-            "{} no tech stack detected",
-            "verbose:".dimmed(),
-        );
+        eprintln!("{} no tech stack detected", "verbose:".dimmed(),);
     } else {
         eprintln!(
             "{} detected tech stack: {}",
@@ -385,10 +382,7 @@ fn print_rule_pack_summary(dir: &std::path::Path) {
             );
         }
         Err(e) => {
-            eprintln!(
-                "{} failed to load rule packs: {e}",
-                "warn:".yellow().bold(),
-            );
+            eprintln!("{} failed to load rule packs: {e}", "warn:".yellow().bold(),);
         }
     }
 }
