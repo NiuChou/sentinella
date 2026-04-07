@@ -1,0 +1,10 @@
+kind: rule-pack
+name: express
+version: "0.1"
+languages: [javascript, typescript]
+detect:
+  package_json:
+    dependencies: ["express"]
+routes: []
+protection_evidence: []
+data_source_evidence: []

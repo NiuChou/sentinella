@@ -1,0 +1,9 @@
+kind: rule-pack
+name: fastapi
+version: "0.1"
+languages: [python]
+detect:
+  requirements_txt: ["fastapi"]
+routes: []
+protection_evidence: []
+data_source_evidence: []
