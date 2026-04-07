@@ -1,0 +1,159 @@
+# =============================================================================
+# Sentinella Rule Pack: Chi (Go)
+# =============================================================================
+#
+# Detects authentication middleware, rate-limiting, JWT verification,
+# data-source usage, error-handling, and sensitive-logging patterns
+# in Chi router applications.
+#
+# Evidence kinds (kebab-case serde values):
+#   auth, auth-exempt, rate-limit, audit, csrf, two-factor,
+#   soft-delete, real-data, error-handled, safe-ignore
+#
+# Evidence scopes (kebab-case serde values):
+#   function, class, file, block, module
+# =============================================================================
+
+kind: rule-pack
+name: chi
+version: "1.0"
+languages: [go]
+
+# ---------------------------------------------------------------------------
+# Auto-detection: when does this rule pack activate?
+# ---------------------------------------------------------------------------
+detect:
+  go_mod:
+    - github.com/go-chi/chi
+  file_patterns:
+    - "**/go.mod"
+
+# ---------------------------------------------------------------------------
+# Protection evidence rules
+# ---------------------------------------------------------------------------
+protection_evidence:
+
+  # --- jwtauth Verifier / Authenticator ---
+  - name: chi-jwtauth-middleware
+    description: >
+      Detects chi jwtauth middleware: jwtauth.Verifier and
+      jwtauth.Authenticator used via r.Use().
+    type: regex
+    scope: block
+    pattern: '(?:jwtauth\.Verifier|jwtauth\.Authenticator)\s*\('
+    provides:
+      kind: auth
+      confidence: 0.90
+
+  # --- Generic auth middleware via r.Use() ---
+  - name: chi-auth-use-middleware
+    description: >
+      Detects auth-related middleware attached to a Chi router via .Use().
+      Matches common naming patterns for auth middleware.
+    type: regex
+    scope: block
+    pattern: '\.Use\(\s*(?:auth|Auth|RequireAuth|AuthMiddleware|TokenAuth|VerifyToken)'
+    provides:
+      kind: auth
+      confidence: 0.85
+
+  # --- Group with auth middleware ---
+  - name: chi-group-auth-middleware
+    description: >
+      Detects Chi r.Group() with auth middleware inside, indicating
+      scoped authentication on a set of routes.
+    type: regex
+    scope: block
+    pattern: '\.Group\(\s*func\s*\(\s*r\s+'
+    provides:
+      kind: auth
+      confidence: 0.65
+
+  # --- Chi Throttle middleware ---
+  - name: chi-throttle-middleware
+    description: >
+      Detects Chi built-in throttle middleware: middleware.Throttle
+      or middleware.ThrottleBacklog for rate limiting.
+    type: regex
+    pattern: 'middleware\.(?:Throttle|ThrottleBacklog)\s*\('
+    provides:
+      kind: rate-limit
+      confidence: 0.90
+
+  # --- chi/render error handling ---
+  - name: chi-render-error
+    description: >
+      Detects chi/render error-handling patterns such as render.Respond
+      and render.Status for structured error responses.
+    type: regex
+    pattern: 'render\.(?:Respond|Status|DefaultResponder|JSON)'
+    provides:
+      kind: audit
+      confidence: 0.60
+
+  # --- Third-party rate limiting ---
+  - name: chi-rate-limit-third-party
+    description: >
+      Detects third-party rate limiting packages commonly used with Chi:
+      httprate, tollbooth, or limiter.
+    type: regex
+    pattern: '(?:httprate\.Limit|tollbooth|limiter\.Limit)'
+    provides:
+      kind: rate-limit
+      confidence: 0.85
+
+# ---------------------------------------------------------------------------
+# Data-source evidence rules
+# ---------------------------------------------------------------------------
+data_source_evidence:
+
+  # --- sqlx / pgx database access ---
+  - name: chi-sqlx-pgx-db
+    description: >
+      Detects database access via sqlx.Connect, sqlx.Open, *sqlx.DB,
+      or pgx.Pool, indicating real database interaction.
+    type: regex
+    pattern: '(?:sqlx\.Connect|sqlx\.Open|\*sqlx\.DB|pgx\.Pool|pgxpool\.New)'
+    provides:
+      kind: real-data
+      confidence: 0.85
+
+  # --- Standard database/sql operations ---
+  - name: chi-go-db-operations
+    description: >
+      Detects standard Go database/sql operations: Query, QueryRow,
+      Exec, and Prepare, indicating real database interaction.
+    type: regex
+    pattern: '\.(?:Query|QueryRow|Exec|Prepare)\('
+    provides:
+      kind: real-data
+      confidence: 0.85
+
+  # --- Standard sql.Open ---
+  - name: chi-sql-open
+    description: >
+      Detects sql.Open calls indicating database driver initialization.
+    type: regex
+    pattern: 'sql\.Open\s*\('
+    provides:
+      kind: real-data
+      confidence: 0.85
+
+# ---------------------------------------------------------------------------
+# Error handling configuration
+# ---------------------------------------------------------------------------
+error_handling:
+  safe_ignore_patterns:
+    - pattern: 'defer\s+\w+\.Close\(\)'
+      reason: "Deferred cleanup -- close errors in defer are idiomatically ignored"
+    - pattern: '_\s*=\s*\w+\.Close\(\)'
+      reason: "Explicit blank-identifier ignore of close error"
+
+# ---------------------------------------------------------------------------
+# Sensitive logging configuration
+# ---------------------------------------------------------------------------
+sensitive_logging:
+  safe_patterns:
+    - "token expired"
+    - "token_type"
+  mask_functions: []

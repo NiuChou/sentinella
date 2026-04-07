@@ -1,0 +1,163 @@
+# =============================================================================
+# Sentinella Rule Pack: Actix Web (Rust)
+# =============================================================================
+#
+# Detects authentication middleware, rate-limiting, identity/session handling,
+# data-source usage, error-handling, and sensitive-logging patterns
+# in Actix Web applications.
+#
+# Evidence kinds (kebab-case serde values):
+#   auth, auth-exempt, rate-limit, audit, csrf, two-factor,
+#   soft-delete, real-data, error-handled, safe-ignore
+#
+# Evidence scopes (kebab-case serde values):
+#   function, class, file, block, module
+# =============================================================================
+
+kind: rule-pack
+name: actix
+version: "1.0"
+languages: [rust]
+
+# ---------------------------------------------------------------------------
+# Auto-detection: when does this rule pack activate?
+# ---------------------------------------------------------------------------
+detect:
+  cargo_toml:
+    - actix-web
+    - actix-rt
+  file_patterns:
+    - "**/Cargo.toml"
+
+# ---------------------------------------------------------------------------
+# Protection evidence rules
+# ---------------------------------------------------------------------------
+protection_evidence:
+
+  # --- .wrap() middleware on App/Scope ---
+  - name: actix-wrap-middleware
+    description: >
+      Detects Actix Web .wrap() calls on App::new() or web::scope(),
+      indicating middleware is applied (often auth, logging, or session).
+    type: regex
+    scope: block
+    pattern: '\.wrap\s*\('
+    provides:
+      kind: auth
+      confidence: 0.60
+
+  # --- actix-identity / actix-session ---
+  - name: actix-identity-session
+    description: >
+      Detects actix_identity or actix_session usage, indicating
+      session-based authentication infrastructure.
+    type: regex
+    scope: file
+    pattern: '(?:actix_identity|actix_session|Identity|Session)(?:::|\.)'
+    provides:
+      kind: auth
+      confidence: 0.85
+
+  # --- actix-web-httpauth (Bearer / Basic) ---
+  - name: actix-httpauth
+    description: >
+      Detects actix-web-httpauth crate usage for Bearer or Basic
+      authentication via HttpAuthentication middleware.
+    type: regex
+    scope: file
+    pattern: '(?:actix_web_httpauth|HttpAuthentication|BearerAuth|BasicAuth)'
+    provides:
+      kind: auth
+      confidence: 0.90
+
+  # --- web::scope().guard() ---
+  - name: actix-scope-guard
+    description: >
+      Detects Actix Web scope or resource guards that restrict access
+      based on request properties (method, headers, etc.).
+    type: regex
+    scope: block
+    pattern: '\.guard\s*\('
+    provides:
+      kind: auth
+      confidence: 0.65
+
+  # --- actix_web::middleware::Logger ---
+  - name: actix-logger-middleware
+    description: >
+      Detects Actix Web Logger middleware for request/response audit
+      logging via middleware::Logger.
+    type: regex
+    pattern: 'middleware::Logger'
+    provides:
+      kind: audit
+      confidence: 0.75
+
+  # --- Governor / rate limiting ---
+  - name: actix-governor-rate-limit
+    description: >
+      Detects rate-limiting middleware for Actix Web via actix-governor
+      or actix-limitation crates.
+    type: regex
+    pattern: '(?:actix_governor|Governor|actix_limitation|RateLimiter)'
+    provides:
+      kind: rate-limit
+      confidence: 0.85
+
+# ---------------------------------------------------------------------------
+# Data-source evidence rules
+# ---------------------------------------------------------------------------
+data_source_evidence:
+
+  # --- web::Data<Pool> / web::Data<DbPool> ---
+  - name: actix-data-pool
+    description: >
+      Detects Actix Web application data containing a database pool
+      via web::Data<Pool> or web::Data<DbPool>.
+    type: regex
+    pattern: 'web::Data<(?:Pool|DbPool|PgPool|SqlitePool)>'
+    provides:
+      kind: real-data
+      confidence: 0.85
+
+  # --- sqlx / diesel queries ---
+  - name: actix-sqlx-diesel-query
+    description: >
+      Detects database query execution via sqlx::query, diesel RunQueryDsl,
+      or diesel::insert_into, indicating real database interaction.
+    type: regex
+    pattern: '(?:sqlx::query|\.execute\s*\(&?\s*pool|diesel::(?:insert_into|update|delete)|\.load\s*::<|RunQueryDsl)'
+    provides:
+      kind: real-data
+      confidence: 0.85
+
+  # --- SeaORM database connection ---
+  - name: actix-sea-orm
+    description: >
+      Detects SeaORM DatabaseConnection usage, indicating real
+      database interaction via the SeaORM framework.
+    type: regex
+    pattern: '(?:sea_orm::DatabaseConnection|DatabaseConnection|sea_orm::entity)'
+    provides:
+      kind: real-data
+      confidence: 0.85
+
+# ---------------------------------------------------------------------------
+# Error handling configuration
+# ---------------------------------------------------------------------------
+error_handling:
+  safe_ignore_patterns:
+    - pattern: 'drop\s*\('
+      reason: "Explicit drop calls for cleanup are safe to ignore"
+    - pattern: '\.shutdown\s*\('
+      reason: "Server shutdown calls during graceful termination are safe"
+
+# ---------------------------------------------------------------------------
+# Sensitive logging configuration
+# ---------------------------------------------------------------------------
+sensitive_logging:
+  safe_patterns:
+    - "token expired"
+    - "token_type"
+    - "bearer"
+  mask_functions: []

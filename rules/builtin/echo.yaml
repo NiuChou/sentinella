@@ -1,0 +1,162 @@
+# =============================================================================
+# Sentinella Rule Pack: Echo (Go)
+# =============================================================================
+#
+# Detects authentication middleware, rate-limiting, JWT/KeyAuth protection,
+# data-source usage, error-handling, and sensitive-logging patterns
+# in Echo web framework applications.
+#
+# Evidence kinds (kebab-case serde values):
+#   auth, auth-exempt, rate-limit, audit, csrf, two-factor,
+#   soft-delete, real-data, error-handled, safe-ignore
+#
+# Evidence scopes (kebab-case serde values):
+#   function, class, file, block, module
+# =============================================================================
+
+kind: rule-pack
+name: echo
+version: "1.0"
+languages: [go]
+
+# ---------------------------------------------------------------------------
+# Auto-detection: when does this rule pack activate?
+# ---------------------------------------------------------------------------
+detect:
+  go_mod:
+    - github.com/labstack/echo
+  file_patterns:
+    - "**/go.mod"
+
+# ---------------------------------------------------------------------------
+# Protection evidence rules
+# ---------------------------------------------------------------------------
+protection_evidence:
+
+  # --- JWT / KeyAuth middleware via e.Use() ---
+  - name: echo-jwt-middleware
+    description: >
+      Detects Echo JWT or KeyAuth middleware attached via e.Use().
+      Matches middleware.JWT, middleware.JWTWithConfig,
+      middleware.KeyAuth, middleware.KeyAuthWithConfig.
+    type: regex
+    scope: block
+    pattern: 'middleware\.(?:JWT|JWTWithConfig|KeyAuth|KeyAuthWithConfig)\s*\('
+    provides:
+      kind: auth
+      confidence: 0.90
+
+  # --- Generic auth middleware via .Use() ---
+  - name: echo-auth-use-middleware
+    description: >
+      Detects auth-related middleware attached to an Echo instance via .Use().
+      Matches common naming patterns: auth, Auth, RequireAuth, TokenAuth.
+    type: regex
+    scope: block
+    pattern: '\.Use\(\s*(?:auth|Auth|RequireAuth|TokenAuth|AuthMiddleware|JWTAuth)'
+    provides:
+      kind: auth
+      confidence: 0.85
+
+  # --- echo.MiddlewareFunc with auth logic ---
+  - name: echo-middleware-func-auth
+    description: >
+      Detects custom Echo middleware functions (echo.MiddlewareFunc) that
+      contain auth-related logic based on naming conventions.
+    type: regex
+    scope: function
+    pattern: 'echo\.MiddlewareFunc'
+    provides:
+      kind: auth
+      confidence: 0.65
+
+  # --- Group-scoped middleware binding ---
+  - name: echo-group-middleware
+    description: >
+      Detects Echo Group with middleware binding. When .Group() and .Use()
+      appear together, it suggests scoped middleware (often auth) applied
+      to a route group.
+    type: regex
+    scope: block
+    pattern: '\.Group\(.*\.Use\('
+    provides:
+      kind: auth
+      confidence: 0.70
+
+  # --- Rate limiting ---
+  - name: echo-rate-limiter
+    description: >
+      Detects Echo rate-limiting middleware: middleware.RateLimiter,
+      middleware.RateLimiterWithConfig, or third-party rate limiters.
+    type: regex
+    pattern: '(?:middleware\.RateLimiter|middleware\.RateLimiterWithConfig|RateLimiter|tollbooth)'
+    provides:
+      kind: rate-limit
+      confidence: 0.85
+
+  # --- CSRF protection ---
+  - name: echo-csrf
+    description: >
+      Detects Echo CSRF middleware via middleware.CSRF or
+      middleware.CSRFWithConfig.
+    type: regex
+    pattern: 'middleware\.CSRF(?:WithConfig)?\s*\('
+    provides:
+      kind: auth
+      confidence: 0.80
+
+# ---------------------------------------------------------------------------
+# Data-source evidence rules
+# ---------------------------------------------------------------------------
+data_source_evidence:
+
+  # --- Standard database/sql or GORM ---
+  - name: echo-go-db-query
+    description: >
+      Detects database access via sql.Open, sql.DB, gorm.Open, or *gorm.DB,
+      indicating real database interaction.
+    type: regex
+    pattern: '(?:sql\.Open|sql\.DB|gorm\.Open|\*gorm\.DB)'
+    provides:
+      kind: real-data
+      confidence: 0.85
+
+  # --- MongoDB ---
+  - name: echo-mongo-connect
+    description: >
+      Detects MongoDB connection via mongo.Connect or mongo.Client usage.
+    type: regex
+    pattern: '(?:mongo\.Connect|mongo\.Client|mongo\.Collection)'
+    provides:
+      kind: real-data
+      confidence: 0.85
+
+  # --- Standard Go DB operations ---
+  - name: echo-go-db-operations
+    description: >
+      Detects standard Go database/sql operations: Query, QueryRow,
+      Exec, and Prepare, indicating real database interaction.
+    type: regex
+    pattern: '\.(?:Query|QueryRow|Exec|Prepare)\('
+    provides:
+      kind: real-data
+      confidence: 0.85
+
+# ---------------------------------------------------------------------------
+# Error handling configuration
+# ---------------------------------------------------------------------------
+error_handling:
+  safe_ignore_patterns:
+    - pattern: 'defer\s+\w+\.Close\(\)'
+      reason: "Deferred cleanup -- close errors in defer are idiomatically ignored"
+    - pattern: '_\s*=\s*\w+\.Close\(\)'
+      reason: "Explicit blank-identifier ignore of close error"
+
+# ---------------------------------------------------------------------------
+# Sensitive logging configuration
+# ---------------------------------------------------------------------------
+sensitive_logging:
+  safe_patterns:
+    - "token expired"
+    - "token_type"
+  mask_functions: []

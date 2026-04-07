@@ -1,0 +1,163 @@
+# =============================================================================
+# Sentinella Rule Pack: Axum (Rust)
+# =============================================================================
+#
+# Detects authentication middleware, rate-limiting, JWT claims extraction,
+# data-source usage, error-handling, and sensitive-logging patterns
+# in Axum web framework applications.
+#
+# Evidence kinds (kebab-case serde values):
+#   auth, auth-exempt, rate-limit, audit, csrf, two-factor,
+#   soft-delete, real-data, error-handled, safe-ignore
+#
+# Evidence scopes (kebab-case serde values):
+#   function, class, file, block, module
+# =============================================================================
+
+kind: rule-pack
+name: axum
+version: "1.0"
+languages: [rust]
+
+# ---------------------------------------------------------------------------
+# Auto-detection: when does this rule pack activate?
+# ---------------------------------------------------------------------------
+detect:
+  cargo_toml:
+    - axum
+    - axum-core
+  file_patterns:
+    - "**/Cargo.toml"
+
+# ---------------------------------------------------------------------------
+# Protection evidence rules
+# ---------------------------------------------------------------------------
+protection_evidence:
+
+  # --- axum::middleware::from_fn auth middleware ---
+  - name: axum-middleware-from-fn
+    description: >
+      Detects Axum middleware::from_fn() calls, commonly used to wire
+      custom auth middleware into the router layer.
+    type: regex
+    scope: block
+    pattern: 'middleware::from_fn\s*\('
+    provides:
+      kind: auth
+      confidence: 0.75
+
+  # --- tower_http::auth / tower::ServiceBuilder ---
+  - name: axum-tower-auth
+    description: >
+      Detects tower_http auth layers or tower::ServiceBuilder usage
+      for authentication and authorization middleware.
+    type: regex
+    scope: file
+    pattern: '(?:tower_http::auth|RequireAuthorization|tower::ServiceBuilder|ServiceBuilder::new)'
+    provides:
+      kind: auth
+      confidence: 0.85
+
+  # --- Extension<Claims> / Extension<User> (JWT claims extraction) ---
+  - name: axum-extension-claims
+    description: >
+      Detects Axum Extension extractor for JWT claims or user objects,
+      indicating auth information is being extracted from requests.
+    type: regex
+    scope: function
+    pattern: 'Extension<(?:Claims|User|AuthUser|CurrentUser|JwtClaims)>'
+    provides:
+      kind: auth
+      confidence: 0.90
+
+  # --- axum::extract::State with auth ---
+  - name: axum-state-auth
+    description: >
+      Detects State extractor patterns that include auth-related
+      types, indicating authentication state is available.
+    type: regex
+    scope: function
+    pattern: 'State<(?:Auth|AppState|SharedState)>'
+    provides:
+      kind: auth
+      confidence: 0.65
+
+  # --- tower_governor / tower::limit (rate limiting) ---
+  - name: axum-rate-limit
+    description: >
+      Detects rate-limiting layers via tower_governor or tower::limit
+      (ConcurrencyLimit, RateLimit) applied to Axum routers.
+    type: regex
+    pattern: '(?:tower_governor|GovernorLayer|ConcurrencyLimitLayer|RateLimitLayer|tower::limit)'
+    provides:
+      kind: rate-limit
+      confidence: 0.85
+
+  # --- tower_http::trace for audit logging ---
+  - name: axum-trace-layer
+    description: >
+      Detects tower_http TraceLayer for request/response audit
+      tracing on Axum routers.
+    type: regex
+    pattern: '(?:TraceLayer|tower_http::trace)'
+    provides:
+      kind: audit
+      confidence: 0.70
+
+# ---------------------------------------------------------------------------
+# Data-source evidence rules
+# ---------------------------------------------------------------------------
+data_source_evidence:
+
+  # --- sqlx pool types ---
+  - name: axum-sqlx-pool
+    description: >
+      Detects sqlx database pool types used with Axum: PgPool,
+      SqlitePool, MySqlPool, indicating real database access.
+    type: regex
+    pattern: '(?:sqlx::PgPool|sqlx::SqlitePool|sqlx::MySqlPool|PgPool|SqlitePool)'
+    provides:
+      kind: real-data
+      confidence: 0.85
+
+  # --- SeaORM database connection ---
+  - name: axum-sea-orm
+    description: >
+      Detects SeaORM DatabaseConnection usage with Axum, indicating
+      real database interaction via the SeaORM framework.
+    type: regex
+    pattern: '(?:sea_orm::DatabaseConnection|DatabaseConnection|sea_orm::entity)'
+    provides:
+      kind: real-data
+      confidence: 0.85
+
+  # --- State<AppState> with db pool ---
+  - name: axum-state-db-pool
+    description: >
+      Detects Axum State extractor containing database pool references,
+      indicating real database connectivity in application state.
+    type: regex
+    pattern: 'State<.*(?:Pool|Db|Database|DbPool).*>'
+    provides:
+      kind: real-data
+      confidence: 0.80
+
+# ---------------------------------------------------------------------------
+# Error handling configuration
+# ---------------------------------------------------------------------------
+error_handling:
+  safe_ignore_patterns:
+    - pattern: 'drop\s*\('
+      reason: "Explicit drop calls for cleanup are safe to ignore"
+    - pattern: '\.shutdown\s*\('
+      reason: "Server shutdown calls during graceful termination are safe"
+
+# ---------------------------------------------------------------------------
+# Sensitive logging configuration
+# ---------------------------------------------------------------------------
+sensitive_logging:
+  safe_patterns:
+    - "token expired"
+    - "token_type"
+    - "bearer"
+  mask_functions: []
