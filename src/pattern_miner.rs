@@ -329,7 +329,10 @@ fn find_shared_prefix(messages: &[String]) -> String {
     }
 
     // Trim to last word boundary
-    let candidate = &first[..first.char_indices().nth(prefix_len).map_or(first.len(), |(i, _)| i)];
+    let candidate = &first[..first
+        .char_indices()
+        .nth(prefix_len)
+        .map_or(first.len(), |(i, _)| i)];
     let trimmed = candidate.trim_end();
 
     // Only keep if it's at least 8 chars (meaningful)
@@ -359,7 +362,10 @@ fn find_shared_keyword(messages: &[String]) -> Option<String> {
         // Deduplicate words within a single message
         let unique_words: std::collections::HashSet<String> = msg
             .split_whitespace()
-            .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase())
+            .map(|w| {
+                w.trim_matches(|c: char| !c.is_alphanumeric())
+                    .to_lowercase()
+            })
             .filter(|w| w.len() > 3 && !stop_words.contains(w.as_str()))
             .collect();
 
@@ -374,9 +380,7 @@ fn find_shared_keyword(messages: &[String]) -> Option<String> {
         .into_iter()
         .filter(|(_, count)| *count >= threshold)
         .max_by(|(word_a, count_a), (word_b, count_b)| {
-            count_a
-                .cmp(count_b)
-                .then(word_a.len().cmp(&word_b.len()))
+            count_a.cmp(count_b).then(word_a.len().cmp(&word_b.len()))
         })
         .map(|(word, _)| word)
 }

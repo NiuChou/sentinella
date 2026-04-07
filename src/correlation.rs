@@ -51,10 +51,7 @@ pub fn correlate_findings(results: &[ScanResult]) -> Vec<CorrelationGroup> {
 
 /// Boost confidence for findings corroborated by 2+ scanners.
 /// Returns new `Vec<ScanResult>` — never mutates input.
-pub fn apply_correlation(
-    results: &[ScanResult],
-    groups: &[CorrelationGroup],
-) -> Vec<ScanResult> {
+pub fn apply_correlation(results: &[ScanResult], groups: &[CorrelationGroup]) -> Vec<ScanResult> {
     let boost_map = build_boost_map(groups);
 
     results
@@ -84,8 +81,7 @@ pub fn apply_correlation(
 
 /// Produce a human-readable summary of correlated hotspots.
 pub fn format_correlation_summary(groups: &[CorrelationGroup]) -> String {
-    let multi: Vec<&CorrelationGroup> =
-        groups.iter().filter(|g| g.scanners.len() >= 2).collect();
+    let multi: Vec<&CorrelationGroup> = groups.iter().filter(|g| g.scanners.len() >= 2).collect();
 
     if multi.is_empty() {
         return "No cross-scanner correlations found.".to_string();
@@ -163,7 +159,11 @@ fn cluster_by_proximity(entries: &[FileFinding]) -> Vec<Vec<&FileFinding>> {
 }
 
 fn line_distance(a: usize, b: usize) -> usize {
-    if a > b { a - b } else { b - a }
+    if a > b {
+        a - b
+    } else {
+        b - a
+    }
 }
 
 /// Build a `CorrelationGroup` from a cluster of file-findings.
@@ -236,10 +236,14 @@ mod tests {
     use crate::scanners::types::Severity;
 
     fn make_finding(scanner: &str, file: &str, line: usize, conf: Confidence) -> Finding {
-        Finding::new(scanner, Severity::Warning, format!("issue at {file}:{line}"))
-            .with_confidence(conf)
-            .with_file(PathBuf::from(file))
-            .with_line(line)
+        Finding::new(
+            scanner,
+            Severity::Warning,
+            format!("issue at {file}:{line}"),
+        )
+        .with_confidence(conf)
+        .with_file(PathBuf::from(file))
+        .with_line(line)
     }
 
     fn make_result(scanner: &str, findings: Vec<Finding>) -> ScanResult {
@@ -406,10 +410,7 @@ mod tests {
             file: PathBuf::from("src/auth.rs"),
             line_range: (50, 55),
             scanners: vec!["S1".to_string(), "S2".to_string()],
-            findings: vec![
-                ("S1".to_string(), 0),
-                ("S2".to_string(), 0),
-            ],
+            findings: vec![("S1".to_string(), 0), ("S2".to_string(), 0)],
             corroboration_score: 2.0,
         }];
         let summary = format_correlation_summary(&groups);
