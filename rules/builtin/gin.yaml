@@ -1,9 +1,136 @@
+# =============================================================================
+# Sentinella Rule Pack: Gin (Go)
+# =============================================================================
+#
+# Detects authentication middleware, rate-limiting, CSRF protection,
+# data-source usage, error-handling, and sensitive-logging patterns
+# in Gin web framework applications.
+#
+# Evidence kinds (kebab-case serde values):
+#   auth, auth-exempt, rate-limit, audit, csrf, two-factor,
+#   soft-delete, real-data, error-handled, safe-ignore
+#
+# Evidence scopes (kebab-case serde values):
+#   function, class, file, block, module
+# =============================================================================
+
 kind: rule-pack
 name: gin
-version: "0.1"
+version: "1.0"
 languages: [go]
+
+# ---------------------------------------------------------------------------
+# Auto-detection: when does this rule pack activate?
+# ---------------------------------------------------------------------------
 detect:
-  go_mod: ["gin-gonic/gin"]
-routes: []
-protection_evidence: []
-data_source_evidence: []
+  go_mod:
+    - gin-gonic/gin
+
+# ---------------------------------------------------------------------------
+# Protection evidence rules
+# ---------------------------------------------------------------------------
+protection_evidence:
+
+  # --- Auth middleware attached via .Use() ---
+  - name: gin-auth-middleware
+    description: >
+      Detects auth-related middleware attached to a Gin router via .Use().
+      Matches common naming patterns: auth, Auth, JWT, jwt, JWTAuth,
+      middleware.Auth, RequireAuth, TokenAuth.
+    type: regex
+    scope: block
+    pattern: '\.Use\(\s*(?:auth|Auth|JWT|jwt|JWTAuth|middleware\.Auth|RequireAuth|TokenAuth)'
+    provides:
+      kind: auth
+      confidence: 0.85
+
+  # --- Group + middleware pattern (.Group(...).Use(...)) ---
+  - name: gin-group-middleware
+    description: >
+      Detects the router-group-with-middleware pattern. When .Group()
+      and .Use() appear on the same line, it suggests scoped middleware
+      (often auth) applied to a route group.
+    type: regex
+    scope: block
+    pattern: '\.Group\(.*\.Use\('
+    provides:
+      kind: auth
+      confidence: 0.70
+
+  # --- Rate limiting ---
+  - name: gin-rate-limit
+    description: >
+      Detects rate-limiting integrations: ratelimit, RateLimiter,
+      tollbooth, or limiter.Limit usage.
+    type: regex
+    pattern: '(?:ratelimit|RateLimiter|tollbooth|limiter\.Limit)'
+    provides:
+      kind: rate-limit
+      confidence: 0.85
+
+  # --- CSRF protection ---
+  - name: gin-csrf
+    description: >
+      Detects CSRF middleware integration via csrf.Middleware or csrf.New.
+    type: regex
+    pattern: '(?:csrf\.Middleware|csrf\.New)'
+    provides:
+      kind: csrf
+      confidence: 0.85
+
+# ---------------------------------------------------------------------------
+# Data-source evidence rules
+# ---------------------------------------------------------------------------
+data_source_evidence:
+
+  # --- Standard database/sql operations ---
+  - name: go-db-query
+    description: >
+      Detects standard Go database/sql operations: Query, QueryRow,
+      Exec, and Prepare, indicating real database interaction.
+    type: regex
+    pattern: '\.(?:Query|QueryRow|Exec|Prepare)\('
+    provides:
+      kind: real-data
+      confidence: 0.85
+
+  # --- GORM ORM operations ---
+  - name: go-gorm-query
+    description: >
+      Detects GORM ORM operations: Find, First, Create, Where, Delete,
+      indicating real database interaction via the GORM ORM.
+    type: regex
+    pattern: '\.(?:Find|First|Create|Where|Delete)\('
+    provides:
+      kind: real-data
+      confidence: 0.85
+
+  # --- Outbound HTTP / gRPC calls ---
+  - name: go-http-call
+    description: >
+      Detects outbound network calls via net/http (Get, Post, Do),
+      resty HTTP client, or gRPC Dial, indicating external data sources.
+    type: regex
+    pattern: '(?:http\.(?:Get|Post|Do)\(|resty\.|grpc\.Dial)'
+    provides:
+      kind: real-data
+      confidence: 0.80
+
+# ---------------------------------------------------------------------------
+# Error handling configuration
+# ---------------------------------------------------------------------------
+error_handling:
+  safe_ignore_patterns:
+    - pattern: 'defer\s+\w+\.Close\(\)'
+      reason: "Deferred cleanup -- close errors in defer are idiomatically ignored"
+    - pattern: '_\s*=\s*\w+\.Close\(\)'
+      reason: "Explicit blank-identifier ignore of close error"
+
+# ---------------------------------------------------------------------------
+# Sensitive logging configuration
+# ---------------------------------------------------------------------------
+sensitive_logging:
+  safe_patterns:
+    - "token expired"
+    - "token_type"
+  mask_functions: []
