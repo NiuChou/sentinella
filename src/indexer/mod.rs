@@ -37,7 +37,83 @@ pub fn build_index_multi(roots: &[&Path], _config: &Config) -> Result<Arc<IndexS
         }
     }
 
+    // Load and execute rule packs against indexed source files
+    execute_rule_packs(roots, &store);
+
     Ok(store)
+}
+
+/// Load rule packs, detect tech stack, and execute regex rules against
+/// all indexed source files. Evidence is written to `store.evidence_store`.
+fn execute_rule_packs(roots: &[&Path], store: &IndexStore) {
+    for root in roots {
+        let rule_packs = match crate::rule_pack::loader::resolve_rule_packs(root) {
+            Ok(packs) => packs,
+            Err(e) => {
+                eprintln!("[WARN] Failed to load rule packs for {}: {e}", root.display());
+                continue;
+            }
+        };
+
+        let detected_stack = crate::rule_pack::detect::detect_tech_stack(root);
+
+        let active_packs: Vec<_> = rule_packs
+            .into_iter()
+            .filter(|pack| {
+                detected_stack.iter().any(|entry| entry.name == pack.name)
+                    || pack.name == "custom" // always load custom packs
+            })
+            .collect();
+
+        if detected_stack.is_empty() {
+            eprintln!(
+                "[WARN] No tech stack detected for {}. \
+                 Run `sentinella init --detect` to configure rule packs.",
+                root.display()
+            );
+        } else {
+            eprintln!(
+                "[INFO] Detected tech stack: {}",
+                detected_stack
+                    .iter()
+                    .map(|e| e.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            eprintln!(
+                "[INFO] Active rule packs: {}",
+                active_packs
+                    .iter()
+                    .map(|p| p.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+
+        run_rule_packs_against_files(&active_packs, store);
+    }
+}
+
+/// Execute regex rules from active packs against each source file in the store.
+fn run_rule_packs_against_files(
+    active_packs: &[crate::rule_pack::schema::RulePack],
+    store: &IndexStore,
+) {
+    if active_packs.is_empty() {
+        return;
+    }
+
+    for entry in store.files.iter() {
+        let file_path = entry.key();
+        if let Ok(source) = std::fs::read_to_string(file_path) {
+            crate::rule_pack::engine::execute_protection_rules(
+                active_packs,
+                file_path,
+                &source,
+                &store.evidence_store,
+            );
+        }
+    }
 }
 
 fn collect_entries(roots: &[&Path]) -> Vec<ignore::DirEntry> {
