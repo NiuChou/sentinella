@@ -62,6 +62,14 @@ enum Command {
         /// Show verbose output (tech stack, rule packs, evidence counts)
         #[arg(short, long)]
         verbose: bool,
+
+        /// Include experimental rules in the scan
+        #[arg(long, default_value_t = false)]
+        experimental: bool,
+
+        /// Include deprecated rules in the scan
+        #[arg(long, default_value_t = false)]
+        include_deprecated: bool,
     },
 
     /// Generate a starter config file
@@ -267,8 +275,22 @@ fn handle_check(
     min_confidence: Option<CliConfidence>,
     show_suspect: bool,
     verbose: bool,
+    experimental: bool,
+    include_deprecated: bool,
 ) -> Result<()> {
     let cfg = load_project_config(config_path.as_deref(), &dir)?;
+
+    let _lifecycle_policy = sentinella::rule_lifecycle::LifecyclePolicy {
+        include_experimental: experimental,
+        include_deprecated,
+    };
+
+    if experimental {
+        eprintln!("{} including experimental rules", "info:".blue().bold(),);
+    }
+    if include_deprecated {
+        eprintln!("{} including deprecated rules", "info:".blue().bold(),);
+    }
 
     let arch = detect_architecture(&dir, &cfg.linked_repos);
     eprintln!(
@@ -600,6 +622,8 @@ fn main() -> Result<()> {
             min_confidence,
             show_suspect,
             verbose,
+            experimental,
+            include_deprecated,
         } => handle_check(
             cli.config,
             dir,
@@ -609,6 +633,8 @@ fn main() -> Result<()> {
             min_confidence,
             show_suspect,
             verbose,
+            experimental,
+            include_deprecated,
         ),
         Command::Dispatch {
             dir,

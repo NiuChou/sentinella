@@ -1,6 +1,21 @@
 use crate::evidence::{EvidenceKind, EvidenceScope};
 use serde::{Deserialize, Serialize};
 
+/// Lifecycle state for a rule in a rule pack.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuleLifecycle {
+    Experimental,
+    Stable,
+    Deprecated,
+}
+
+impl Default for RuleLifecycle {
+    fn default() -> Self {
+        Self::Stable
+    }
+}
+
 /// A complete rule pack file
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RulePack {
@@ -105,6 +120,13 @@ pub struct ProtectionEvidenceRule {
     #[serde(default)]
     pub match_condition: Option<MatchCondition>,
     pub provides: ProvidesConfig,
+
+    #[serde(default)]
+    pub lifecycle: RuleLifecycle,
+    #[serde(default)]
+    pub since_version: Option<String>,
+    #[serde(default)]
+    pub deprecated_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -136,6 +158,13 @@ pub struct DataSourceRule {
     #[serde(default)]
     pub pattern: Option<String>,
     pub provides: ProvidesConfig,
+
+    #[serde(default)]
+    pub lifecycle: RuleLifecycle,
+    #[serde(default)]
+    pub since_version: Option<String>,
+    #[serde(default)]
+    pub deprecated_reason: Option<String>,
 }
 
 /// Error handling configuration

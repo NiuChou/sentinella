@@ -6,6 +6,7 @@ pub mod indexer;
 pub mod memory;
 pub mod pattern_miner;
 pub mod reporters;
+pub mod rule_lifecycle;
 pub mod rule_pack;
 pub mod scanners;
 pub mod state;
