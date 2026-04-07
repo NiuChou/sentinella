@@ -72,6 +72,7 @@ impl fmt::Display for Confidence {
 pub struct Finding {
     pub scanner: String,
     pub severity: Severity,
+    #[serde(default = "default_confidence")]
     pub confidence: Confidence,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -80,6 +81,10 @@ pub struct Finding {
     pub line: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggestion: Option<String>,
+}
+
+fn default_confidence() -> Confidence {
+    Confidence::Likely
 }
 
 impl Finding {
@@ -93,6 +98,10 @@ impl Finding {
             line: None,
             suggestion: None,
         }
+    }
+
+    pub fn with_confidence(self, confidence: Confidence) -> Self {
+        Self { confidence, ..self }
     }
 
     pub fn with_file(self, file: impl Into<PathBuf>) -> Self {
@@ -116,10 +125,6 @@ impl Finding {
         }
     }
 
-    pub fn with_confidence(self, confidence: Confidence) -> Self {
-        Self { confidence, ..self }
-    }
-
     /// Generate a deterministic ID for tracking findings across runs.
     ///
     /// The ID is based on scanner name, relative file path, and a normalized
@@ -138,11 +143,9 @@ impl Finding {
     }
 
     fn normalize_message(&self) -> String {
-        // Replace HTTP methods + paths with placeholders to group similar findings
         let re_method =
             regex::Regex::new(r"(GET|POST|PUT|PATCH|DELETE)\s+\S+").expect("valid regex");
         let normalized = re_method.replace_all(&self.message, "METHOD PATH");
-        // Replace specific line numbers
         let re_line = regex::Regex::new(r"line \d+").expect("valid regex");
         let normalized = re_line.replace_all(&normalized, "line N");
         normalized.into_owned()
