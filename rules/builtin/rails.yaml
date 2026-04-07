@@ -1,0 +1,164 @@
+# =============================================================================
+# Sentinella Rule Pack: Ruby on Rails
+# =============================================================================
+#
+# Detects authentication, authorization, rate-limiting, data-source usage,
+# error-handling, and sensitive-logging patterns in Ruby on Rails applications.
+#
+# Evidence kinds (kebab-case serde values):
+#   auth, auth-exempt, rate-limit, audit, csrf, two-factor,
+#   soft-delete, real-data, error-handled, safe-ignore
+#
+# Evidence scopes (kebab-case serde values):
+#   function, class, file, block, module
+# =============================================================================
+
+kind: rule-pack
+name: rails
+version: "1.0.0"
+languages: [ruby]
+
+# ---------------------------------------------------------------------------
+# Auto-detection: when does this rule pack activate?
+# ---------------------------------------------------------------------------
+detect:
+  file_patterns:
+    - "**/Gemfile"
+    - "**/config/routes.rb"
+    - "**/app/controllers/**/*.rb"
+
+# ---------------------------------------------------------------------------
+# Protection evidence rules
+# ---------------------------------------------------------------------------
+protection_evidence:
+
+  # --- Devise authentication ---
+  - name: rails-devise-authenticate
+    description: >
+      Detects before_action :authenticate_user! callback from Devise,
+      requiring the user to be signed in.
+    type: regex
+    pattern: 'before_action\s+:authenticate_\w+!'
+    provides:
+      kind: auth
+      confidence: 0.95
+
+  # --- Skip authentication (auth-exempt) ---
+  - name: rails-skip-authentication
+    description: >
+      Detects skip_before_action for authentication callbacks,
+      explicitly exempting actions from auth checks.
+    type: regex
+    pattern: 'skip_before_action\s+:authenticate'
+    provides:
+      kind: auth-exempt
+      confidence: 0.90
+
+  # --- CanCanCan authorization ---
+  - name: rails-cancancan
+    description: >
+      Detects CanCanCan authorization calls: authorize!, can?,
+      cannot?, or load_and_authorize_resource.
+    type: regex
+    pattern: '(?:authorize!\s*|\.can\?\s*|\.cannot\?\s*|load_and_authorize_resource)'
+    provides:
+      kind: auth
+      confidence: 0.90
+
+  # --- Pundit authorization ---
+  - name: rails-pundit
+    description: >
+      Detects Pundit authorization calls: authorize @record,
+      policy_scope, or verify_authorized.
+    type: regex
+    pattern: '(?:authorize\s+@\w+|policy_scope\s*\(|verify_authorized|verify_policy_scoped)'
+    provides:
+      kind: auth
+      confidence: 0.90
+
+  # --- Rate limiting (Rack::Attack) ---
+  - name: rails-rack-attack
+    description: >
+      Detects Rack::Attack throttle or blocklist configuration,
+      indicating rate limiting at the middleware level.
+    type: regex
+    pattern: 'Rack::Attack\.(?:throttle|blocklist|safelist)'
+    provides:
+      kind: rate-limit
+      confidence: 0.90
+
+  # --- has_secure_password ---
+  - name: rails-secure-password
+    description: >
+      Detects has_secure_password in models, indicating built-in
+      bcrypt-based password authentication.
+    type: regex
+    pattern: 'has_secure_password'
+    provides:
+      kind: auth
+      confidence: 0.80
+
+# ---------------------------------------------------------------------------
+# Data-source evidence rules
+# ---------------------------------------------------------------------------
+data_source_evidence:
+
+  # --- ActiveRecord model definition ---
+  - name: rails-activerecord-model
+    description: >
+      Detects ActiveRecord model classes inheriting from
+      ApplicationRecord or ActiveRecord::Base.
+    type: regex
+    pattern: 'class\s+\w+\s*<\s*(?:ApplicationRecord|ActiveRecord::Base)'
+    provides:
+      kind: real-data
+      confidence: 0.90
+
+  # --- ActiveRecord associations ---
+  - name: rails-activerecord-associations
+    description: >
+      Detects ActiveRecord association macros: has_many, belongs_to,
+      has_one, has_and_belongs_to_many.
+    type: regex
+    pattern: '(?:has_many|belongs_to|has_one|has_and_belongs_to_many)\s+:'
+    provides:
+      kind: real-data
+      confidence: 0.85
+
+  # --- ActiveRecord query methods ---
+  - name: rails-activerecord-queries
+    description: >
+      Detects ActiveRecord query methods: where, find, find_by,
+      create, update, destroy, pluck, select.
+    type: regex
+    pattern: '\.(?:where|find|find_by|create|update|destroy|pluck|select)\s*\('
+    provides:
+      kind: real-data
+      confidence: 0.80
+
+# ---------------------------------------------------------------------------
+# Error handling configuration
+# ---------------------------------------------------------------------------
+error_handling:
+  safe_ignore_patterns:
+    - pattern: '\.close\b'
+      reason: "Resource cleanup -- close errors are typically non-critical"
+    - pattern: 'Rails\.logger\.(?:debug|info)'
+      reason: "Logging calls never need error checking"
+    - pattern: 'after_teardown'
+      reason: "Rails test teardown hooks are safe to ignore"
+
+# ---------------------------------------------------------------------------
+# Sensitive logging configuration
+# ---------------------------------------------------------------------------
+sensitive_logging:
+  safe_patterns:
+    - "token_type"
+    - "token expired"
+    - "access_token"
+    - "session expired"
+  mask_functions:
+    - "mask_phone"
+    - "mask_email"
+    - "redact"
+    - "sanitize"

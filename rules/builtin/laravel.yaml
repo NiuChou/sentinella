@@ -1,0 +1,166 @@
+# =============================================================================
+# Sentinella Rule Pack: Laravel
+# =============================================================================
+#
+# Detects authentication, authorization, rate-limiting, data-source usage,
+# error-handling, and sensitive-logging patterns in Laravel (PHP) applications.
+#
+# Evidence kinds (kebab-case serde values):
+#   auth, auth-exempt, rate-limit, audit, csrf, two-factor,
+#   soft-delete, real-data, error-handled, safe-ignore
+#
+# Evidence scopes (kebab-case serde values):
+#   function, class, file, block, module
+# =============================================================================
+
+kind: rule-pack
+name: laravel
+version: "1.0.0"
+languages: [php]
+
+# ---------------------------------------------------------------------------
+# Auto-detection: when does this rule pack activate?
+# ---------------------------------------------------------------------------
+detect:
+  file_patterns:
+    - "**/composer.json"
+    - "**/routes/web.php"
+    - "**/routes/api.php"
+    - "**/app/Http/Controllers/**/*.php"
+
+# ---------------------------------------------------------------------------
+# Protection evidence rules
+# ---------------------------------------------------------------------------
+protection_evidence:
+
+  # --- Auth middleware ---
+  - name: laravel-auth-middleware
+    description: >
+      Detects middleware('auth') or middleware('auth:sanctum') or
+      middleware('auth:api') — Laravel authentication middleware.
+    type: regex
+    pattern: "middleware\\s*\\(\\s*['\"]auth(?::(?:sanctum|api))?['\"]"
+    provides:
+      kind: auth
+      confidence: 0.95
+
+  # --- Gate / Policy authorization ---
+  - name: laravel-gate-authorize
+    description: >
+      Detects Laravel authorization via $this->authorize(),
+      Gate::allows(), Gate::denies(), or Gate::check().
+    type: regex
+    pattern: '(?:\$this->authorize\s*\(|Gate::(?:allows|denies|check|authorize)\s*\()'
+    provides:
+      kind: auth
+      confidence: 0.90
+
+  # --- Blade @can / @cannot directives ---
+  - name: laravel-blade-can
+    description: >
+      Detects Blade template authorization directives @can and
+      @cannot, indicating view-level access control.
+    type: regex
+    pattern: '@(?:can|cannot|canany)\s*\('
+    provides:
+      kind: auth
+      confidence: 0.85
+
+  # --- Throttle middleware ---
+  - name: laravel-throttle
+    description: >
+      Detects Route::middleware('throttle') — Laravel built-in
+      rate limiting via throttle middleware.
+    type: regex
+    pattern: "middleware\\s*\\(\\s*['\"]throttle"
+    provides:
+      kind: rate-limit
+      confidence: 0.90
+
+  # --- Policy class methods ---
+  - name: laravel-policy-class
+    description: >
+      Detects Laravel Policy class definitions with standard
+      authorization method signatures (view, create, update, delete).
+    type: regex
+    pattern: 'class\s+\w+Policy\b'
+    provides:
+      kind: auth
+      confidence: 0.85
+
+  # --- Input validation ---
+  - name: laravel-request-validate
+    description: >
+      Detects Laravel request validation via $request->validate()
+      or Validator::make(), indicating input validation.
+    type: regex
+    pattern: '(?:\$request->validate\s*\(|Validator::make\s*\()'
+    provides:
+      kind: input-validation
+      confidence: 0.85
+
+# ---------------------------------------------------------------------------
+# Data-source evidence rules
+# ---------------------------------------------------------------------------
+data_source_evidence:
+
+  # --- Eloquent model definition ---
+  - name: laravel-eloquent-model
+    description: >
+      Detects Eloquent model classes extending Model or
+      Authenticatable, indicating database-backed models.
+    type: regex
+    pattern: 'class\s+\w+\s+extends\s+(?:Model|Authenticatable)\b'
+    provides:
+      kind: real-data
+      confidence: 0.90
+
+  # --- DB facade queries ---
+  - name: laravel-db-facade
+    description: >
+      Detects Laravel DB facade usage: DB::table(), DB::select(),
+      DB::insert(), DB::raw(), indicating direct SQL access.
+    type: regex
+    pattern: 'DB::(?:table|select|insert|update|delete|raw|statement)\s*\('
+    provides:
+      kind: real-data
+      confidence: 0.90
+
+  # --- Eloquent query builder ---
+  - name: laravel-eloquent-queries
+    description: >
+      Detects Eloquent query builder patterns: ->where(), ->find(),
+      ->create(), ->first(), ->get() on model instances.
+    type: regex
+    pattern: '->(?:where|find|findOrFail|create|first|firstOrFail|get|paginate|all)\s*\('
+    provides:
+      kind: real-data
+      confidence: 0.80
+
+# ---------------------------------------------------------------------------
+# Error handling configuration
+# ---------------------------------------------------------------------------
+error_handling:
+  safe_ignore_patterns:
+    - pattern: '->close\(\)'
+      reason: "Resource cleanup -- close errors are typically non-critical"
+    - pattern: 'Log::(?:debug|info)\s*\('
+      reason: "Logging calls never need error checking"
+    - pattern: 'report\s*\('
+      reason: "Laravel exception reporting is safe to ignore in cleanup"
+
+# ---------------------------------------------------------------------------
+# Sensitive logging configuration
+# ---------------------------------------------------------------------------
+sensitive_logging:
+  safe_patterns:
+    - "token_type"
+    - "token expired"
+    - "access_token"
+    - "session expired"
+    - "bearer"
+  mask_functions:
+    - "maskPhone"
+    - "maskEmail"
+    - "redact"
+    - "sanitize"

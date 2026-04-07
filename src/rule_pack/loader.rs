@@ -95,6 +95,18 @@ fn load_builtin_rule_packs() -> Vec<RulePack> {
         ("express", include_str!("../../rules/builtin/express.yaml")),
         ("fastapi", include_str!("../../rules/builtin/fastapi.yaml")),
         ("gin", include_str!("../../rules/builtin/gin.yaml")),
+        ("django", include_str!("../../rules/builtin/django.yaml")),
+        ("flask", include_str!("../../rules/builtin/flask.yaml")),
+        (
+            "spring-boot",
+            include_str!("../../rules/builtin/spring-boot.yaml"),
+        ),
+        ("rails", include_str!("../../rules/builtin/rails.yaml")),
+        ("laravel", include_str!("../../rules/builtin/laravel.yaml")),
+        ("echo", include_str!("../../rules/builtin/echo.yaml")),
+        ("chi", include_str!("../../rules/builtin/chi.yaml")),
+        ("actix", include_str!("../../rules/builtin/actix.yaml")),
+        ("axum", include_str!("../../rules/builtin/axum.yaml")),
     ];
 
     for (name, yaml) in builtin_yamls {

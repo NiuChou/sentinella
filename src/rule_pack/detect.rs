@@ -17,6 +17,9 @@ pub fn detect_tech_stack(root: &Path) -> Vec<TechStackEntry> {
     detect_python(root, &mut stack);
     detect_go(root, &mut stack);
     detect_rust(root, &mut stack);
+    detect_java(root, &mut stack);
+    detect_ruby(root, &mut stack);
+    detect_php(root, &mut stack);
 
     stack
 }
@@ -156,6 +159,102 @@ fn detect_rust(root: &Path, stack: &mut Vec<TechStackEntry>) {
                     name: (*pack_name).into(),
                     confidence: *confidence,
                     source: "Cargo.toml".to_string(),
+                });
+            }
+        }
+    }
+}
+
+fn detect_java(root: &Path, stack: &mut Vec<TechStackEntry>) {
+    let pom_paths = [root.join("pom.xml"), root.join("backend/pom.xml")];
+    let gradle_paths = [
+        root.join("build.gradle"),
+        root.join("build.gradle.kts"),
+        root.join("backend/build.gradle"),
+        root.join("backend/build.gradle.kts"),
+    ];
+
+    let mut found = false;
+
+    for pom_path in &pom_paths {
+        if let Ok(content) = std::fs::read_to_string(pom_path) {
+            if content.contains("spring-boot") {
+                stack.push(TechStackEntry {
+                    name: "spring-boot".into(),
+                    confidence: 0.95,
+                    source: pom_path
+                        .strip_prefix(root)
+                        .unwrap_or(pom_path)
+                        .to_string_lossy()
+                        .to_string(),
+                });
+                found = true;
+            }
+        }
+    }
+
+    if !found {
+        for gradle_path in &gradle_paths {
+            if let Ok(content) = std::fs::read_to_string(gradle_path) {
+                if content.contains("spring-boot") || content.contains("org.springframework.boot")
+                {
+                    stack.push(TechStackEntry {
+                        name: "spring-boot".into(),
+                        confidence: 0.95,
+                        source: gradle_path
+                            .strip_prefix(root)
+                            .unwrap_or(gradle_path)
+                            .to_string_lossy()
+                            .to_string(),
+                    });
+                    break;
+                }
+            }
+        }
+    }
+}
+
+fn detect_ruby(root: &Path, stack: &mut Vec<TechStackEntry>) {
+    let gemfile_paths = [root.join("Gemfile"), root.join("backend/Gemfile")];
+
+    for gemfile_path in &gemfile_paths {
+        if let Ok(content) = std::fs::read_to_string(gemfile_path) {
+            let source = gemfile_path
+                .strip_prefix(root)
+                .unwrap_or(gemfile_path)
+                .to_string_lossy()
+                .to_string();
+
+            if content.contains("rails") || content.contains("railties") {
+                stack.push(TechStackEntry {
+                    name: "rails".into(),
+                    confidence: 0.95,
+                    source,
+                });
+            }
+        }
+    }
+}
+
+fn detect_php(root: &Path, stack: &mut Vec<TechStackEntry>) {
+    let composer_paths = [
+        root.join("composer.json"),
+        root.join("backend/composer.json"),
+    ];
+
+    for composer_path in &composer_paths {
+        if let Ok(content) = std::fs::read_to_string(composer_path) {
+            let source = composer_path
+                .strip_prefix(root)
+                .unwrap_or(composer_path)
+                .to_string_lossy()
+                .to_string();
+
+            if content.contains("laravel/framework") || content.contains("laravel/laravel") {
+                stack.push(TechStackEntry {
+                    name: "laravel".into(),
+                    confidence: 0.95,
+                    source,
                 });
             }
         }

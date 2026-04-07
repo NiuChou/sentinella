@@ -1,0 +1,165 @@
+# =============================================================================
+# Sentinella Rule Pack: Spring Boot
+# =============================================================================
+#
+# Detects authentication, authorization, rate-limiting, audit, data-source
+# usage, error-handling, and sensitive-logging patterns in Spring Boot
+# (Java/Kotlin) applications.
+#
+# Evidence kinds (kebab-case serde values):
+#   auth, auth-exempt, rate-limit, audit, csrf, two-factor,
+#   soft-delete, real-data, error-handled, safe-ignore
+#
+# Evidence scopes (kebab-case serde values):
+#   function, class, file, block, module
+# =============================================================================
+
+kind: rule-pack
+name: spring-boot
+version: "1.0.0"
+languages: [java, kotlin]
+
+# ---------------------------------------------------------------------------
+# Auto-detection: when does this rule pack activate?
+# ---------------------------------------------------------------------------
+detect:
+  file_patterns:
+    - "**/pom.xml"
+    - "**/build.gradle"
+    - "**/*Controller.java"
+    - "**/*Controller.kt"
+
+# ---------------------------------------------------------------------------
+# Protection evidence rules
+# ---------------------------------------------------------------------------
+protection_evidence:
+
+  # --- Method-level security annotations ---
+  - name: spring-preauthorize
+    description: >
+      Detects @PreAuthorize or @PostAuthorize annotations — Spring
+      Security SpEL-based method-level authorization.
+    type: regex
+    pattern: '@(?:PreAuthorize|PostAuthorize)\s*\('
+    provides:
+      kind: auth
+      confidence: 0.95
+
+  - name: spring-secured
+    description: >
+      Detects @Secured annotation — role-based method-level
+      security from Spring Security.
+    type: regex
+    pattern: '@Secured\s*\('
+    provides:
+      kind: auth
+      confidence: 0.95
+
+  - name: spring-roles-allowed
+    description: >
+      Detects @RolesAllowed annotation (JSR-250) — standard
+      Java role-based access control.
+    type: regex
+    pattern: '@RolesAllowed\s*\('
+    provides:
+      kind: auth
+      confidence: 0.90
+
+  # --- Security configuration ---
+  - name: spring-security-config
+    description: >
+      Detects SecurityFilterChain bean definition or legacy
+      WebSecurityConfigurerAdapter, indicating HTTP security config.
+    type: regex
+    pattern: '(?:SecurityFilterChain|WebSecurityConfigurerAdapter|@EnableMethodSecurity|@EnableGlobalMethodSecurity)'
+    provides:
+      kind: auth
+      confidence: 0.85
+
+  # --- Rate limiting (Resilience4j) ---
+  - name: spring-rate-limiter
+    description: >
+      Detects @RateLimiter annotation from Resilience4j,
+      indicating rate limiting is applied.
+    type: regex
+    pattern: '@RateLimiter\s*\('
+    provides:
+      kind: rate-limit
+      confidence: 0.90
+
+  # --- Audit logging ---
+  - name: spring-audit
+    description: >
+      Detects Spring audit mechanisms: @Audited (Hibernate Envers),
+      AuditApplicationEvent, or @CreatedBy/@LastModifiedBy annotations.
+    type: regex
+    pattern: '(?:@Audited|AuditApplicationEvent|@CreatedBy|@LastModifiedBy)'
+    provides:
+      kind: audit
+      confidence: 0.80
+
+# ---------------------------------------------------------------------------
+# Data-source evidence rules
+# ---------------------------------------------------------------------------
+data_source_evidence:
+
+  # --- Spring Data repository ---
+  - name: spring-data-repository
+    description: >
+      Detects Spring Data repository interfaces extending
+      JpaRepository, CrudRepository, or annotated with @Repository.
+    type: regex
+    pattern: '(?:@Repository|extends\s+(?:JpaRepository|CrudRepository|PagingAndSortingRepository|MongoRepository))'
+    provides:
+      kind: real-data
+      confidence: 0.90
+
+  # --- JPA entity ---
+  - name: spring-jpa-entity
+    description: >
+      Detects JPA entity annotations (@Entity, @Table) indicating
+      database-mapped domain objects.
+    type: regex
+    pattern: '@(?:Entity|Table)\s*(?:\(|$)'
+    provides:
+      kind: real-data
+      confidence: 0.85
+
+  # --- JdbcTemplate ---
+  - name: spring-jdbc-template
+    description: >
+      Detects JdbcTemplate or NamedParameterJdbcTemplate usage,
+      indicating direct SQL-based data access.
+    type: regex
+    pattern: '(?:JdbcTemplate|NamedParameterJdbcTemplate)\s*[.(]'
+    provides:
+      kind: real-data
+      confidence: 0.90
+
+# ---------------------------------------------------------------------------
+# Error handling configuration
+# ---------------------------------------------------------------------------
+error_handling:
+  safe_ignore_patterns:
+    - pattern: '\.close\(\)'
+      reason: "Resource cleanup -- close errors are typically non-critical"
+    - pattern: 'log\.(?:debug|info|trace)\s*\('
+      reason: "Logging calls never need error checking"
+    - pattern: '@PreDestroy'
+      reason: "Spring lifecycle cleanup hook -- errors are handled by container"
+
+# ---------------------------------------------------------------------------
+# Sensitive logging configuration
+# ---------------------------------------------------------------------------
+sensitive_logging:
+  safe_patterns:
+    - "token_type"
+    - "token expired"
+    - "access_token"
+    - "bearer"
+    - "session expired"
+  mask_functions:
+    - "maskPhone"
+    - "maskEmail"
+    - "redact"
+    - "sanitize"
