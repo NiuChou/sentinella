@@ -3,5 +3,6 @@ pub mod dispatchers;
 pub mod evidence;
 pub mod indexer;
 pub mod reporters;
+pub mod rule_pack;
 pub mod scanners;
 pub mod state;

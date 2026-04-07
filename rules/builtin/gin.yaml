@@ -1,0 +1,9 @@
+kind: rule-pack
+name: gin
+version: "0.1"
+languages: [go]
+detect:
+  go_mod: ["gin-gonic/gin"]
+routes: []
+protection_evidence: []
+data_source_evidence: []

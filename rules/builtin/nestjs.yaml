@@ -1,0 +1,10 @@
+kind: rule-pack
+name: nestjs
+version: "0.1"
+languages: [typescript]
+detect:
+  package_json:
+    dependencies: ["@nestjs/core"]
+routes: []
+protection_evidence: []
+data_source_evidence: []
