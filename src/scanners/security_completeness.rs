@@ -6,13 +6,13 @@ const SCANNER_NAME: &str = "SecurityCompleteness";
 const SCANNER_DESC: &str =
     "Checks that API endpoints are protected by auth middleware (auth, guard, verify, jwt, session, protect).";
 
-const AUTH_KEYWORDS: &[&str] = &["auth", "guard", "verify", "jwt", "session", "protect"];
+const DEFAULT_AUTH_KEYWORDS: &[&str] = &["auth", "guard", "verify", "jwt", "session", "protect"];
 
 pub struct SecurityCompleteness;
 
-fn is_auth_middleware(name: &str) -> bool {
+fn is_auth_middleware_with_keywords(name: &str, keywords: &[&str]) -> bool {
     let lower = name.to_lowercase();
-    AUTH_KEYWORDS.iter().any(|kw| lower.contains(kw))
+    keywords.iter().any(|kw| lower.contains(kw))
 }
 
 fn is_mutating(method: HttpMethod) -> bool {
@@ -55,7 +55,12 @@ fn build_summary(
     }
 }
 
-fn endpoint_has_auth_scope(ctx: &ScanContext, file: &std::path::Path, line: usize) -> bool {
+fn endpoint_has_auth_scope(
+    ctx: &ScanContext,
+    file: &std::path::Path,
+    line: usize,
+    auth_keywords: &[&str],
+) -> bool {
     ctx.index
         .middleware_scopes
         .get(file)
@@ -63,7 +68,7 @@ fn endpoint_has_auth_scope(ctx: &ScanContext, file: &std::path::Path, line: usiz
             scopes.value().iter().any(|scope| {
                 line >= scope.line_start
                     && line <= scope.line_end
-                    && is_auth_middleware(&scope.middleware_name)
+                    && is_auth_middleware_with_keywords(&scope.middleware_name, auth_keywords)
             })
         })
         .unwrap_or(false)
@@ -83,6 +88,20 @@ impl Scanner for SecurityCompleteness {
     }
 
     fn scan(&self, ctx: &ScanContext) -> ScanResult {
+        // Read auth keywords from config override or fall back to defaults
+        let config_keywords: Vec<String> = ctx
+            .config
+            .scanner_overrides
+            .s7
+            .as_ref()
+            .map(|c| c.auth_keywords.clone())
+            .unwrap_or_default();
+        let auth_keywords: Vec<&str> = if config_keywords.is_empty() {
+            DEFAULT_AUTH_KEYWORDS.to_vec()
+        } else {
+            config_keywords.iter().map(|s| s.as_str()).collect()
+        };
+
         let all_endpoints = ctx.index.all_api_endpoints();
         let mut findings: Vec<Finding> = Vec::new();
 
@@ -91,7 +110,7 @@ impl Scanner for SecurityCompleteness {
         let mut protected_count: usize = 0;
 
         for ep in &all_endpoints {
-            if endpoint_has_auth_scope(ctx, &ep.file, ep.line) {
+            if endpoint_has_auth_scope(ctx, &ep.file, ep.line, &auth_keywords) {
                 protected_count += 1;
                 continue;
             }
@@ -158,6 +177,7 @@ mod tests {
             data_isolation: Default::default(),
             required_layers: Default::default(),
             linked_repos: Vec::new(),
+            scanner_overrides: Default::default(),
         }
     }
 
@@ -353,14 +373,15 @@ mod tests {
 
     #[test]
     fn test_auth_keyword_matching() {
-        assert!(is_auth_middleware("requireAuth"));
-        assert!(is_auth_middleware("jwtVerify"));
-        assert!(is_auth_middleware("sessionMiddleware"));
-        assert!(is_auth_middleware("protectRoute"));
-        assert!(is_auth_middleware("authGuard"));
-        assert!(!is_auth_middleware("rateLimiter"));
-        assert!(!is_auth_middleware("cors"));
-        assert!(!is_auth_middleware("logger"));
+        let kw = DEFAULT_AUTH_KEYWORDS;
+        assert!(is_auth_middleware_with_keywords("requireAuth", kw));
+        assert!(is_auth_middleware_with_keywords("jwtVerify", kw));
+        assert!(is_auth_middleware_with_keywords("sessionMiddleware", kw));
+        assert!(is_auth_middleware_with_keywords("protectRoute", kw));
+        assert!(is_auth_middleware_with_keywords("authGuard", kw));
+        assert!(!is_auth_middleware_with_keywords("rateLimiter", kw));
+        assert!(!is_auth_middleware_with_keywords("cors", kw));
+        assert!(!is_auth_middleware_with_keywords("logger", kw));
     }
 
     #[test]

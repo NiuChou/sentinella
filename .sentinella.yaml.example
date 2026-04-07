@@ -1,0 +1,53 @@
+version: "1.0"
+project: my-project
+type: fullstack
+
+layers:
+  backend:
+    pattern: "src/**/*.ts"
+  frontend:
+    pattern: "app/**/*.tsx"
+
+output:
+  format: terminal
+  min_coverage: 80
+  severity: warning
+
+# Scanner behavior customization
+# Each scanner's hardcoded defaults can be overridden here.
+# Only specify the fields you want to change — omitted fields keep their defaults.
+scanner_overrides:
+  # S7: SecurityCompleteness — auth middleware keyword detection
+  s7:
+    auth_keywords: ["auth", "guard", "verify", "jwt", "session", "protect"]
+
+  # S11: EnvConfigDrift — excluded variable prefixes (CI/CD platform vars)
+  s11:
+    # build_time_prefixes: ["NEXT_PUBLIC_", "VITE_", "REACT_APP_"]
+    exclude_var_prefixes: ["GITHUB_", "VERCEL_", "NETLIFY_"]
+
+  # S13: DestructiveEndpointSafety — 2FA path requirements
+  # s13:
+  #   require_2fa_paths: ["/user/account", "/user/data"]
+  #   skip_internal_paths: ["**/jobs/**", "**/cron/**"]
+
+  # S17: SilentErrorSwallowing — safe ignore patterns
+  # s17:
+  #   safe_ignore_patterns: ["\\.Close\\(\\)", "defer.*Close"]
+
+  # S18: TokenInvalidation — state change path keywords
+  s18:
+    trigger_fields: ["delete", "deactivate", "suspend", "ban", "disable", "revoke", "block"]
+
+  # S20: SensitiveDataLogging — keyword patterns (applied at indexer level)
+  # s20:
+  #   safe_patterns: ["token expired", "token_type", "token invalid"]
+  #   sensitive_keywords: ["password", "secret", "token", "api_key", "private_key"]
+
+  # S22: RateLimitingCoverage — auth endpoint keyword detection
+  s22:
+    rate_limit_keywords: ["login", "auth", "verify", "reset-password", "otp", "register", "sms", "token", "refresh", "callback"]
+
+  # S23: AuditLogCompleteness — auth path keyword detection
+  s23:
+    audit_keywords: ["login", "logout", "register", "signup", "signin", "signout"]

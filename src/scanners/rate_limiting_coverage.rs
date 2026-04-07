@@ -10,8 +10,8 @@ const SCANNER_NAME: &str = "RateLimitingCoverage";
 const SCANNER_DESC: &str =
     "Checks whether authentication and sensitive endpoints have rate limiting protection";
 
-/// Keywords that identify auth-related endpoints.
-const AUTH_KEYWORDS: &[&str] = &[
+/// Default keywords that identify auth-related endpoints.
+const DEFAULT_AUTH_KEYWORDS: &[&str] = &[
     "login",
     "auth",
     "verify",
@@ -24,10 +24,16 @@ const AUTH_KEYWORDS: &[&str] = &[
     "callback",
 ];
 
-/// Returns true if the endpoint path contains any auth-related keyword.
+/// Returns true if the endpoint path contains any auth-related keyword (default set).
+#[cfg(test)]
 fn is_auth_endpoint(path: &str) -> bool {
+    is_auth_endpoint_with_keywords(path, DEFAULT_AUTH_KEYWORDS)
+}
+
+/// Returns true if the endpoint path contains any of the given keywords.
+fn is_auth_endpoint_with_keywords(path: &str, keywords: &[&str]) -> bool {
     let lower = path.to_lowercase();
-    AUTH_KEYWORDS.iter().any(|kw| lower.contains(kw))
+    keywords.iter().any(|kw| lower.contains(kw))
 }
 
 /// Compute score from the ratio of protected auth endpoints to total auth endpoints.
@@ -73,11 +79,25 @@ impl Scanner for RateLimitingCoverage {
     }
 
     fn scan(&self, ctx: &ScanContext) -> ScanResult {
+        // Read rate-limit auth keywords from config override or fall back to defaults
+        let config_keywords: Vec<String> = ctx
+            .config
+            .scanner_overrides
+            .s22
+            .as_ref()
+            .map(|c| c.rate_limit_keywords.clone())
+            .unwrap_or_default();
+        let auth_kw: Vec<&str> = if config_keywords.is_empty() {
+            DEFAULT_AUTH_KEYWORDS.to_vec()
+        } else {
+            config_keywords.iter().map(|s| s.as_str()).collect()
+        };
+
         let all_endpoints = ctx.index.all_api_endpoints();
 
         let auth_endpoints: Vec<_> = all_endpoints
             .iter()
-            .filter(|ep| is_auth_endpoint(&ep.path))
+            .filter(|ep| is_auth_endpoint_with_keywords(&ep.path, &auth_kw))
             .collect();
 
         let total_auth = auth_endpoints.len();

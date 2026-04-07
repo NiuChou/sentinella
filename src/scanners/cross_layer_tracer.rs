@@ -548,6 +548,7 @@ mod tests {
                 "page".into(),
             ],
             linked_repos: Vec::new(),
+            scanner_overrides: Default::default(),
         }
     }
 }
