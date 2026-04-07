@@ -72,6 +72,21 @@ enum Command {
         #[arg(long, default_value_t = false)]
         dry_run: bool,
     },
+
+    /// Interactive triage: label findings as confirmed or false positive
+    Triage {
+        /// Project root directory (defaults to current directory)
+        #[arg(short, long, default_value = ".")]
+        dir: PathBuf,
+
+        /// Number of findings to triage per session
+        #[arg(long, default_value = "20")]
+        batch: usize,
+
+        /// Only triage findings from this scanner
+        #[arg(long)]
+        scanner: Option<String>,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -178,9 +193,14 @@ fn handle_check(
     let index = build_project_index_for_arch(&dir, &cfg, &arch)?;
     let results = run_project_scanners(&cfg, &index, &dir, scanner_filter.as_deref())?;
 
-    render_check_output(&results, &cfg, &format);
+    // Apply Bayesian calibration to adjust confidence scores
+    let calibration_store = sentinella::calibration::load_calibration(&dir)
+        .map_err(|e| miette::miette!("failed to load calibration: {e}"))?;
+    let calibrated = sentinella::calibration::apply_calibration(&results, &calibration_store);
 
-    exit_on_coverage_failure(&results, min_coverage);
+    render_check_output(&calibrated, &cfg, &format);
+
+    exit_on_coverage_failure(&calibrated, min_coverage);
     Ok(())
 }
 
@@ -205,6 +225,28 @@ fn handle_dispatch(
     let tasks = task_decomposer::decompose(&results);
 
     dispatch_tasks(&tasks, &target, dry_run);
+    Ok(())
+}
+
+fn handle_triage_cmd(
+    config_path: Option<PathBuf>,
+    dir: PathBuf,
+    batch: usize,
+    scanner_filter: Option<String>,
+) -> Result<()> {
+    let cfg = load_project_config(config_path.as_deref(), &dir)?;
+
+    let arch = detect_architecture(&dir, &cfg.linked_repos);
+    let index = build_project_index_for_arch(&dir, &cfg, &arch)?;
+    let results = run_project_scanners(&cfg, &index, &dir, scanner_filter.as_deref())?;
+
+    let calibration_store = sentinella::calibration::load_calibration(&dir)
+        .map_err(|e| miette::miette!("failed to load calibration: {e}"))?;
+    let calibrated = sentinella::calibration::apply_calibration(&results, &calibration_store);
+
+    sentinella::calibration::handle_triage(&dir, &calibrated, batch, scanner_filter.as_deref())
+        .map_err(|e| miette::miette!("triage failed: {e}"))?;
+
     Ok(())
 }
 
@@ -364,5 +406,10 @@ fn main() -> Result<()> {
             target,
             dry_run,
         } => handle_dispatch(cli.config, dir, target, dry_run),
+        Command::Triage {
+            dir,
+            batch,
+            scanner,
+        } => handle_triage_cmd(cli.config, dir, batch, scanner),
     }
 }
