@@ -49,6 +49,10 @@ enum Command {
         /// Minimum coverage percentage to pass
         #[arg(long)]
         min_coverage: Option<u8>,
+
+        /// Disable cross-scanner correlation
+        #[arg(long)]
+        no_correlation: bool,
     },
 
     /// Generate a starter config file
@@ -165,6 +169,7 @@ fn handle_check(
     scanner_filter: Option<String>,
     format: CliOutputFormat,
     min_coverage: Option<u8>,
+    no_correlation: bool,
 ) -> Result<()> {
     let cfg = load_project_config(config_path.as_deref(), &dir)?;
 
@@ -176,7 +181,17 @@ fn handle_check(
     );
 
     let index = build_project_index_for_arch(&dir, &cfg, &arch)?;
-    let results = run_project_scanners(&cfg, &index, &dir, scanner_filter.as_deref())?;
+    let raw_results = run_project_scanners(&cfg, &index, &dir, scanner_filter.as_deref())?;
+
+    // Apply cross-scanner correlation unless disabled
+    let results = if no_correlation {
+        raw_results
+    } else {
+        let groups = sentinella::correlation::correlate_findings(&raw_results);
+        let correlated = sentinella::correlation::apply_correlation(&raw_results, &groups);
+        print_correlation_summary(&groups, &format);
+        correlated
+    };
 
     render_check_output(&results, &cfg, &format);
 
@@ -321,6 +336,19 @@ fn exit_on_coverage_failure(
     }
 }
 
+fn print_correlation_summary(
+    groups: &[sentinella::correlation::CorrelationGroup],
+    format: &CliOutputFormat,
+) {
+    if !matches!(format, CliOutputFormat::Terminal) {
+        return;
+    }
+    let summary = sentinella::correlation::format_correlation_summary(groups);
+    if !summary.is_empty() {
+        eprintln!("{} {}", "correlation:".blue().bold(), summary);
+    }
+}
+
 fn dispatch_tasks(tasks: &[task_decomposer::Task], target: &CliDispatchTarget, dry_run: bool) {
     match target {
         CliDispatchTarget::Stdout => {
@@ -358,7 +386,8 @@ fn main() -> Result<()> {
             scanner,
             format,
             min_coverage,
-        } => handle_check(cli.config, dir, scanner, format, min_coverage),
+            no_correlation,
+        } => handle_check(cli.config, dir, scanner, format, min_coverage, no_correlation),
         Command::Dispatch {
             dir,
             target,
