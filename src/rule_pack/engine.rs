@@ -247,7 +247,7 @@ import { Controller } from '@nestjs/common';
 export class MyController {}
 "#;
         execute_protection_rules(&[pack], Path::new("src/app.controller.ts"), source, &store);
-        let evidence = store.snapshot();
+        let evidence = store.query_all(Path::new("src/app.controller.ts"), 3);
         assert_eq!(evidence.len(), 1);
         assert_eq!(evidence[0].kind, EvidenceKind::Auth);
     }
