@@ -57,6 +57,10 @@ enum Command {
         /// Show all findings including low-confidence suspects
         #[arg(long)]
         show_suspect: bool,
+
+        /// Show verbose output (tech stack, rule packs, evidence counts)
+        #[arg(short, long)]
+        verbose: bool,
     },
 
     /// Generate a starter config file
@@ -194,6 +198,7 @@ fn handle_check(
     min_coverage: Option<u8>,
     min_confidence: Option<CliConfidence>,
     show_suspect: bool,
+    verbose: bool,
 ) -> Result<()> {
     let cfg = load_project_config(config_path.as_deref(), &dir)?;
 
@@ -205,10 +210,17 @@ fn handle_check(
     );
 
     let index = build_project_index_for_arch(&dir, &cfg, &arch)?;
+
+    if verbose {
+        print_rule_pack_summary(&dir);
+    }
+
     let results = run_project_scanners(&cfg, &index, &dir, scanner_filter.as_deref())?;
 
     let confidence_threshold = min_confidence.as_ref().map(to_confidence);
     render_check_output(&results, &cfg, &format, confidence_threshold, show_suspect);
+
+    print_evidence_summary(&index, &format);
 
     exit_on_coverage_failure(&results, min_coverage);
     Ok(())
@@ -332,6 +344,73 @@ fn render_check_output(
     print!("{gap_output}");
 }
 
+fn print_rule_pack_summary(dir: &std::path::Path) {
+    let detected_stack = sentinella::rule_pack::detect::detect_tech_stack(dir);
+    if detected_stack.is_empty() {
+        eprintln!(
+            "{} no tech stack detected",
+            "verbose:".dimmed(),
+        );
+    } else {
+        eprintln!(
+            "{} detected tech stack: {}",
+            "verbose:".dimmed(),
+            detected_stack
+                .iter()
+                .map(|e| format!("{} ({:.0}%)", e.name, e.confidence * 100.0))
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+    }
+
+    match sentinella::rule_pack::loader::resolve_rule_packs(dir) {
+        Ok(packs) => {
+            let active_packs: Vec<_> = packs
+                .iter()
+                .filter(|pack| {
+                    detected_stack.iter().any(|entry| entry.name == pack.name)
+                        || pack.name == "custom"
+                })
+                .collect();
+            eprintln!(
+                "{} loaded {} rule pack(s), {} active: {}",
+                "verbose:".dimmed(),
+                packs.len(),
+                active_packs.len(),
+                active_packs
+                    .iter()
+                    .map(|p| p.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
+        }
+        Err(e) => {
+            eprintln!(
+                "{} failed to load rule packs: {e}",
+                "warn:".yellow().bold(),
+            );
+        }
+    }
+}
+
+fn print_evidence_summary(
+    index: &Arc<sentinella::indexer::store::IndexStore>,
+    format: &CliOutputFormat,
+) {
+    if !matches!(format, CliOutputFormat::Terminal) {
+        return;
+    }
+
+    let evidence_count = index.evidence_store.len();
+    if evidence_count > 0 {
+        eprintln!(
+            "{} evidence: {} entries from rule packs and middleware migration",
+            "info:".blue().bold(),
+            evidence_count,
+        );
+    }
+}
+
 fn exit_on_coverage_failure(
     results: &[sentinella::scanners::types::ScanResult],
     min_coverage: Option<u8>,
@@ -392,6 +471,7 @@ fn main() -> Result<()> {
             min_coverage,
             min_confidence,
             show_suspect,
+            verbose,
         } => handle_check(
             cli.config,
             dir,
@@ -400,6 +480,7 @@ fn main() -> Result<()> {
             min_coverage,
             min_confidence,
             show_suspect,
+            verbose,
         ),
         Command::Dispatch {
             dir,
