@@ -1,0 +1,142 @@
+# =============================================================================
+# Sentinella Rule Pack: FastAPI
+# =============================================================================
+#
+# Detects authentication, authorization, rate-limiting, data-source usage,
+# error-handling, and sensitive-logging patterns in FastAPI / Starlette
+# applications.
+#
+# Evidence kinds (kebab-case serde values):
+#   auth, auth-exempt, rate-limit, audit, csrf, two-factor,
+#   soft-delete, real-data, error-handled, safe-ignore
+#
+# Evidence scopes (kebab-case serde values):
+#   function, class, file, block, module
+# =============================================================================
+
+kind: rule-pack
+name: fastapi
+version: "1.0"
+languages: [python]
+
+# ---------------------------------------------------------------------------
+# Auto-detection: when does this rule pack activate?
+# ---------------------------------------------------------------------------
+detect:
+  requirements_txt:
+    - fastapi
+    - starlette
+  pyproject_toml:
+    dependencies:
+      - fastapi
+
+# ---------------------------------------------------------------------------
+# Protection evidence rules
+# ---------------------------------------------------------------------------
+protection_evidence:
+
+  # --- Authentication via FastAPI Depends() ---
+  - name: fastapi-depends-auth
+    description: >
+      Detects Depends() calls that inject common auth/user-verification
+      dependencies (get_current_user, verify_token, require_auth, etc.).
+    type: regex
+    pattern: 'Depends\(\s*(?:get_current_user|require_auth|verify_token|get_user|auth|jwt|current_user|token_required)'
+    provides:
+      kind: auth
+      confidence: 0.90
+
+  # --- Security utilities (HTTPBearer, OAuth2, Security()) ---
+  - name: fastapi-security-depends
+    description: >
+      Detects FastAPI security utilities: Security(), HTTPBearer(),
+      and OAuth2PasswordBearer usage.
+    type: regex
+    pattern: '(?:Security\(|HTTPBearer\(|OAuth2PasswordBearer)'
+    provides:
+      kind: auth
+      confidence: 0.85
+
+  # --- Permission / role checking classes ---
+  - name: fastapi-permission-class
+    description: >
+      Detects custom permission-checking patterns commonly used
+      in FastAPI applications (PermissionDependency, RoleChecker, etc.).
+    type: regex
+    pattern: '(?:PermissionDependency|RoleChecker|has_permission)'
+    provides:
+      kind: auth
+      confidence: 0.80
+
+  # --- Rate limiting ---
+  - name: fastapi-rate-limit
+    description: >
+      Detects rate-limiting integrations such as slowapi,
+      custom RateLimiter dependencies, or limiter usage.
+    type: regex
+    pattern: '(?:RateLimiter|rate_limit|slowapi|limiter)'
+    provides:
+      kind: rate-limit
+      confidence: 0.85
+
+# ---------------------------------------------------------------------------
+# Data-source evidence rules
+# ---------------------------------------------------------------------------
+data_source_evidence:
+
+  # --- SQLAlchemy session / engine operations ---
+  - name: python-sqlalchemy
+    description: >
+      Detects SQLAlchemy ORM operations via session or db objects
+      (query, execute, add, delete, merge, commit).
+    type: regex
+    pattern: '(?:session|db)\.\s*(?:query|execute|add|delete|merge|commit)'
+    provides:
+      kind: real-data
+      confidence: 0.85
+
+  # --- Django-style ORM queries (also used by Tortoise, etc.) ---
+  - name: python-orm-query
+    description: >
+      Detects ORM-style query patterns: .objects., .filter(),
+      .get(), .all() -- common in Django ORM, Tortoise ORM, and others.
+    type: regex
+    pattern: '\.objects\.|\.filter\(|\.get\(|\.all\(\)'
+    provides:
+      kind: real-data
+      confidence: 0.80
+
+  # --- HTTP client calls (httpx, aiohttp, requests) ---
+  - name: python-httpx-aiohttp
+    description: >
+      Detects outbound HTTP calls via httpx, aiohttp, or requests
+      libraries, indicating real external data sources.
+    type: regex
+    pattern: '(?:httpx\.|aiohttp\.|requests\.(?:get|post|put|delete|patch))'
+    provides:
+      kind: real-data
+      confidence: 0.80
+
+# ---------------------------------------------------------------------------
+# Error handling configuration
+# ---------------------------------------------------------------------------
+error_handling:
+  safe_ignore_patterns:
+    - pattern: '\.close\(\)'
+      reason: "Resource cleanup -- close errors are typically non-critical"
+    - pattern: 'logger\.(?:debug|info)'
+      reason: "Logging calls never need error checking"
+
+# ---------------------------------------------------------------------------
+# Sensitive logging configuration
+# ---------------------------------------------------------------------------
+sensitive_logging:
+  safe_patterns:
+    - "token_type"
+    - "token expired"
+    - "access_token"
+  mask_functions:
+    - "mask_phone"
+    - "mask_email"
+    - "redact"
+    - "sanitize"
