@@ -37,6 +37,9 @@ sqlparser = { version = "0.61", features = ["visitor"] }
 # Text processing
 regex = "1"
 
+# Directories
+dirs = "5"
+
 # File traversal
 ignore = "0.4"
 globset = "0.4"
