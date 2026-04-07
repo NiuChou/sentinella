@@ -1,0 +1,170 @@
+# =============================================================================
+# Sentinella Rule Pack — NestJS
+# =============================================================================
+#
+# Detects NestJS projects and provides evidence rules for:
+#   - Authentication guards (@UseGuards, @Roles, @Public)
+#   - Rate limiting (@Throttle)
+#   - Audit logging (interceptors)
+#   - Data-source injection (@Inject, @InjectRepository, PrismaService)
+#   - Error-handling & sensitive-logging overrides
+#
+# Schema: src/rule_pack/schema.rs
+# =============================================================================
+
+name: NestJS
+version: "1.0.0"
+description: >
+  Comprehensive rule pack for NestJS applications. Covers decorator-based
+  auth guards, role-based access control, throttling, audit interceptors,
+  and common DI patterns for repositories and services.
+
+# ---------------------------------------------------------------------------
+# Detection — how Sentinella decides this pack applies
+# ---------------------------------------------------------------------------
+detect:
+  package_json_dependencies:
+    - "@nestjs/core"
+    - "@nestjs/common"
+  file_patterns:
+    - "**/*.controller.ts"
+    - "**/*.module.ts"
+    - "**/*.guard.ts"
+
+# ---------------------------------------------------------------------------
+# Protection evidence — decorators and patterns that prove security controls
+# ---------------------------------------------------------------------------
+protection_evidence:
+
+  # --- Authentication guards ---------------------------------------------------
+
+  - id: nestjs-class-guard
+    description: >
+      Class-level @UseGuards decorator — applies the guard to every route
+      handler in the controller.
+    type: regex
+    # Matches @UseGuards(...) appearing before a class declaration or at the
+    # top of a controller. Allows any whitespace/newline between decorator
+    # and class keyword.
+    pattern: '@UseGuards\s*\([^)]+\)\s*\n\s*(?:export\s+)?class\s'
+    kind: auth
+    confidence: 0.90
+    scope: class
+
+  - id: nestjs-method-guard
+    description: >
+      Method-level @UseGuards decorator — protects a single route handler.
+    type: regex
+    # Matches @UseGuards(...) immediately before a method (async or not).
+    pattern: '@UseGuards\s*\([^)]+\)\s*\n\s*(?:@\w+\([^)]*\)\s*\n\s*)*(?:async\s+)?\w+\s*\('
+    kind: auth
+    confidence: 0.95
+    scope: function
+
+  - id: nestjs-public-decorator
+    description: >
+      @Public() or @IsPublic() decorator — explicitly marks a route as
+      not requiring authentication.
+    type: regex
+    pattern: '@(?:Public|IsPublic)\s*\(\s*\)'
+    kind: auth-exempt
+    confidence: 0.95
+    scope: function
+
+  # --- Role-based access control ------------------------------------------------
+
+  - id: nestjs-roles-decorator
+    description: >
+      @Roles() decorator — restricts access to users with specific roles.
+    type: regex
+    pattern: '@Roles\s*\('
+    kind: auth
+    confidence: 0.85
+    scope: function
+
+  # --- Rate limiting ------------------------------------------------------------
+
+  - id: nestjs-throttle-decorator
+    description: >
+      @Throttle() or @SkipThrottle() — configures or disables rate limiting
+      via @nestjs/throttler.
+    type: regex
+    pattern: '@(?:Throttle|SkipThrottle)\s*\('
+    kind: rate-limit
+    confidence: 0.90
+    scope: function
+
+  # --- Audit logging ------------------------------------------------------------
+
+  - id: nestjs-audit-interceptor
+    description: >
+      AuditInterceptor or @UseInterceptors(...Audit...) — indicates
+      request/response auditing is active.
+    type: regex
+    pattern: '(?:AuditInterceptor|@UseInterceptors\s*\([^)]*Audit[^)]*\))'
+    kind: audit
+    confidence: 0.80
+    scope: class
+
+# ---------------------------------------------------------------------------
+# Data-source evidence — patterns indicating real data access (not stubs)
+# ---------------------------------------------------------------------------
+data_source_evidence:
+
+  - id: nestjs-inject-service
+    description: >
+      Constructor injection of a service via @Inject() or typed
+      `private readonly fooService: FooService` pattern.
+    type: regex
+    # Matches either @Inject('TOKEN') or the idiomatic `private readonly xService`
+    pattern: '(?:@Inject\s*\([^)]*\)|private\s+readonly\s+\w+Service)'
+    kind: real-data
+    confidence: 0.80
+    scope: class
+
+  - id: nestjs-repository-inject
+    description: >
+      @InjectRepository() — TypeORM repository injection proving DB access.
+    type: regex
+    pattern: '@InjectRepository\s*\('
+    kind: real-data
+    confidence: 0.90
+    scope: class
+
+  - id: nestjs-prisma-inject
+    description: >
+      PrismaService injection or direct prisma.model usage.
+    type: regex
+    pattern: '(?:PrismaService|this\.prisma\.\w+)'
+    kind: real-data
+    confidence: 0.85
+    scope: class
+
+# ---------------------------------------------------------------------------
+# Error-handling overrides
+# ---------------------------------------------------------------------------
+error_handling:
+  safe_ignore_patterns:
+    - pattern: '\.close\(\)'
+      reason: >
+        Resource cleanup calls (DB connections, streams) are safe to leave
+        without explicit error handling.
+    - pattern: '\.destroy\(\)'
+      reason: >
+        Teardown / destroy calls during cleanup are safe to ignore.
+    - pattern: 'onModuleDestroy'
+      reason: >
+        NestJS lifecycle hook for cleanup — errors here are typically logged
+        by the framework.
+
+# ---------------------------------------------------------------------------
+# Sensitive-logging overrides
+# ---------------------------------------------------------------------------
+sensitive_logging:
+  safe_patterns:
+    - "token expired"
+    - "token_type"
+    - "token invalid"
+    - "invalid token"
+    - "refresh token rotation"
+    - "bearer"
