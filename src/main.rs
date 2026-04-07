@@ -49,6 +49,14 @@ enum Command {
         /// Minimum coverage percentage to pass
         #[arg(long)]
         min_coverage: Option<u8>,
+
+        /// Include experimental rules in the scan
+        #[arg(long, default_value_t = false)]
+        experimental: bool,
+
+        /// Include deprecated rules in the scan
+        #[arg(long, default_value_t = false)]
+        include_deprecated: bool,
     },
 
     /// Generate a starter config file
@@ -165,8 +173,22 @@ fn handle_check(
     scanner_filter: Option<String>,
     format: CliOutputFormat,
     min_coverage: Option<u8>,
+    experimental: bool,
+    include_deprecated: bool,
 ) -> Result<()> {
     let cfg = load_project_config(config_path.as_deref(), &dir)?;
+
+    let _lifecycle_policy = sentinella::rule_lifecycle::LifecyclePolicy {
+        include_experimental: experimental,
+        include_deprecated,
+    };
+
+    if experimental {
+        eprintln!("{} including experimental rules", "info:".blue().bold(),);
+    }
+    if include_deprecated {
+        eprintln!("{} including deprecated rules", "info:".blue().bold(),);
+    }
 
     let arch = detect_architecture(&dir, &cfg.linked_repos);
     eprintln!(
@@ -358,7 +380,17 @@ fn main() -> Result<()> {
             scanner,
             format,
             min_coverage,
-        } => handle_check(cli.config, dir, scanner, format, min_coverage),
+            experimental,
+            include_deprecated,
+        } => handle_check(
+            cli.config,
+            dir,
+            scanner,
+            format,
+            min_coverage,
+            experimental,
+            include_deprecated,
+        ),
         Command::Dispatch {
             dir,
             target,
