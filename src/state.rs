@@ -305,10 +305,7 @@ mod tests {
         let result = sync_findings(&state, &ids, Path::new("/tmp"));
 
         assert_eq!(result.findings.len(), 1);
-        assert_eq!(
-            result.findings["s01-aabbccdd"].status,
-            FindingStatus::Open
-        );
+        assert_eq!(result.findings["s01-aabbccdd"].status, FindingStatus::Open);
         assert!(result.last_scan.is_some());
     }
 
@@ -334,10 +331,7 @@ mod tests {
         // Finding no longer present in current scan
         let result = sync_findings(&state, &[], Path::new("/tmp"));
 
-        assert_eq!(
-            result.findings["s01-11111111"].status,
-            FindingStatus::Fixed
-        );
+        assert_eq!(result.findings["s01-11111111"].status, FindingStatus::Fixed);
         assert!(result.findings["s01-11111111"].fixed_at.is_some());
     }
 
@@ -412,10 +406,7 @@ mod tests {
         let ids = vec!["s01-44444444".to_string()];
         let result = sync_findings(&state, &ids, Path::new("/tmp"));
 
-        assert_eq!(
-            result.findings["s01-44444444"].status,
-            FindingStatus::Open
-        );
+        assert_eq!(result.findings["s01-44444444"].status, FindingStatus::Open);
         assert!(result.findings["s01-44444444"].fixed_at.is_none());
     }
 
