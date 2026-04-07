@@ -118,6 +118,12 @@ enum Command {
         action: MemoryAction,
     },
 
+    /// Export, import, or inspect Bayesian calibration data
+    Calibrate {
+        #[command(subcommand)]
+        action: CalibrateAction,
+    },
+
     /// Interactive triage: label findings as confirmed or false positive
     Triage {
         /// Project root directory (defaults to current directory)
@@ -160,6 +166,40 @@ enum MemoryAction {
     },
     /// List all memories
     List {
+        /// Project root directory
+        #[arg(short, long, default_value = ".")]
+        dir: PathBuf,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum CalibrateAction {
+    /// Export calibration data to a JSON file for sharing
+    Export {
+        /// Project root directory
+        #[arg(short, long, default_value = ".")]
+        dir: PathBuf,
+        /// Output file path
+        #[arg(short, long)]
+        output: PathBuf,
+        /// Project name label for the export
+        #[arg(short, long)]
+        name: Option<String>,
+    },
+    /// Import calibration data from another project
+    Import {
+        /// Project root directory
+        #[arg(short, long, default_value = ".")]
+        dir: PathBuf,
+        /// Input file path (exported JSON)
+        #[arg(short, long)]
+        input: PathBuf,
+        /// Merge weight 0.0-1.0 (default 0.5)
+        #[arg(short, long)]
+        weight: Option<f64>,
+    },
+    /// Display current calibration statistics
+    Show {
         /// Project root directory
         #[arg(short, long, default_value = ".")]
         dir: PathBuf,
@@ -677,6 +717,7 @@ fn main() -> Result<()> {
             dir,
         } => handle_dismiss(dir, finding_id, reason),
         Command::Memory { action } => handle_memory(action),
+        Command::Calibrate { action } => handle_calibrate(action),
         Command::Triage {
             dir,
             batch,
@@ -684,6 +725,76 @@ fn main() -> Result<()> {
         } => handle_triage_cmd(cli.config, dir, batch, scanner),
         Command::Learn { dir, min_cluster } => handle_learn(dir, min_cluster),
     }
+}
+
+fn handle_calibrate(action: CalibrateAction) -> Result<()> {
+    match action {
+        CalibrateAction::Export { dir, output, name } => handle_calibrate_export(dir, output, name),
+        CalibrateAction::Import { dir, input, weight } => {
+            handle_calibrate_import(dir, input, weight)
+        }
+        CalibrateAction::Show { dir } => handle_calibrate_show(dir),
+    }
+}
+
+fn handle_calibrate_export(dir: PathBuf, output: PathBuf, name: Option<String>) -> Result<()> {
+    let store = sentinella::calibration::load_calibration(&dir)
+        .map_err(|e| miette::miette!("failed to load calibration: {e}"))?;
+
+    let project_name = name.unwrap_or_else(|| {
+        dir.canonicalize()
+            .ok()
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+            .unwrap_or_else(|| "unknown".to_string())
+    });
+
+    let exported = sentinella::calibration_transfer::export_calibration(&store, &project_name);
+
+    sentinella::calibration_transfer::save_export(&output, &exported)
+        .map_err(|e| miette::miette!("failed to save export: {e}"))?;
+
+    eprintln!(
+        "{} exported {} bucket(s) to {}",
+        "done:".green().bold(),
+        exported.buckets.len(),
+        output.display().cyan(),
+    );
+    Ok(())
+}
+
+fn handle_calibrate_import(dir: PathBuf, input: PathBuf, weight: Option<f64>) -> Result<()> {
+    let existing = sentinella::calibration::load_calibration(&dir)
+        .map_err(|e| miette::miette!("failed to load calibration: {e}"))?;
+
+    let imported = sentinella::calibration_transfer::load_export(&input)
+        .map_err(|e| miette::miette!("failed to load export file: {e}"))?;
+
+    let merge_weight = weight.unwrap_or(0.5);
+    let merged =
+        sentinella::calibration_transfer::import_calibration(&existing, &imported, merge_weight);
+
+    sentinella::calibration::save_calibration(&dir, &merged)
+        .map_err(|e| miette::miette!("failed to save calibration: {e}"))?;
+
+    eprintln!(
+        "{} imported {} bucket(s) from {} (weight={:.2})",
+        "done:".green().bold(),
+        imported.buckets.len(),
+        imported.exported_from.cyan(),
+        merge_weight,
+    );
+    Ok(())
+}
+
+fn handle_calibrate_show(dir: PathBuf) -> Result<()> {
+    let store = sentinella::calibration::load_calibration(&dir)
+        .map_err(|e| miette::miette!("failed to load calibration: {e}"))?;
+
+    println!(
+        "{}",
+        sentinella::calibration_transfer::format_calibration_stats(&store)
+    );
+    Ok(())
 }
 
 fn handle_dismiss(dir: PathBuf, finding_id: String, reason: String) -> Result<()> {
