@@ -58,6 +58,12 @@ impl Confidence {
     }
 }
 
+impl Default for Confidence {
+    fn default() -> Self {
+        Self::Likely
+    }
+}
+
 impl fmt::Display for Confidence {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -72,7 +78,7 @@ impl fmt::Display for Confidence {
 pub struct Finding {
     pub scanner: String,
     pub severity: Severity,
-    #[serde(default = "default_confidence")]
+    #[serde(default)]
     pub confidence: Confidence,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -83,16 +89,12 @@ pub struct Finding {
     pub suggestion: Option<String>,
 }
 
-fn default_confidence() -> Confidence {
-    Confidence::Likely
-}
-
 impl Finding {
     pub fn new(scanner: &str, severity: Severity, message: impl Into<String>) -> Self {
         Self {
             scanner: scanner.to_string(),
             severity,
-            confidence: Confidence::Likely,
+            confidence: Confidence::default(),
             message: message.into(),
             file: None,
             line: None,
