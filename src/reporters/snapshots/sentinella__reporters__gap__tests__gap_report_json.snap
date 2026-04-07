@@ -9,6 +9,7 @@ expression: json
       {
         "scanner": "S1",
         "severity": "critical",
+        "confidence": "likely",
         "message": "Stub detected in useData.ts",
         "file": "src/hooks/useData.ts",
         "line": 10,
@@ -24,6 +25,7 @@ expression: json
       {
         "scanner": "S6",
         "severity": "warning",
+        "confidence": "likely",
         "message": "TODO residue found",
         "file": "src/api.ts",
         "line": 42

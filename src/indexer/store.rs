@@ -44,6 +44,7 @@ pub struct IndexStore {
     pub test_bypass_refs: DashMap<PathBuf, Vec<TestBypassRef>>,
     pub token_refresh_refs: DashMap<PathBuf, Vec<TokenRefreshRef>>,
     pub concurrency_safety_refs: DashMap<PathBuf, Vec<ConcurrencySafetyRef>>,
+    pub evidence_store: crate::evidence::EvidenceStore,
 }
 
 impl IndexStore {
@@ -324,6 +325,7 @@ impl IndexStore {
             .collect()
     }
 
+    /// Deprecated: use `evidence_store.has_protection(file, line, EvidenceKind::Auth)` instead.
     pub fn has_middleware_protection(&self, file: &Path, line: usize) -> bool {
         self.middleware_scopes
             .get(file)
