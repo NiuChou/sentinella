@@ -72,6 +72,33 @@ enum Command {
         #[arg(long, default_value_t = false)]
         dry_run: bool,
     },
+
+    /// Manage project context memories
+    Memory {
+        #[command(subcommand)]
+        action: MemoryAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum MemoryAction {
+    /// Add a project-level or scanner-scoped memory
+    Add {
+        /// Memory text
+        text: String,
+        /// Scanner ID to scope to (e.g. S7)
+        #[arg(long)]
+        scanner: Option<String>,
+        /// Project root directory
+        #[arg(short, long, default_value = ".")]
+        dir: PathBuf,
+    },
+    /// List all memories
+    List {
+        /// Project root directory
+        #[arg(short, long, default_value = ".")]
+        dir: PathBuf,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -321,6 +348,33 @@ fn exit_on_coverage_failure(
     }
 }
 
+fn handle_memory(action: MemoryAction) -> Result<()> {
+    match action {
+        MemoryAction::Add { text, scanner, dir } => {
+            let current = sentinella::memory::load_memories(&dir)
+                .map_err(|e| miette::miette!("failed to load memories: {e}"))?;
+            let updated = sentinella::memory::add_memory(&current, text.clone(), scanner.clone());
+            sentinella::memory::save_memories(&dir, &updated)
+                .map_err(|e| miette::miette!("failed to save memories: {e}"))?;
+
+            let scope_label = scanner.as_deref().unwrap_or("project");
+            eprintln!(
+                "{} added memory to scope [{}]: {}",
+                "done:".green().bold(),
+                scope_label.cyan(),
+                text,
+            );
+            Ok(())
+        }
+        MemoryAction::List { dir } => {
+            let memories = sentinella::memory::load_memories(&dir)
+                .map_err(|e| miette::miette!("failed to load memories: {e}"))?;
+            println!("{}", sentinella::memory::format_memories(&memories));
+            Ok(())
+        }
+    }
+}
+
 fn dispatch_tasks(tasks: &[task_decomposer::Task], target: &CliDispatchTarget, dry_run: bool) {
     match target {
         CliDispatchTarget::Stdout => {
@@ -364,5 +418,6 @@ fn main() -> Result<()> {
             target,
             dry_run,
         } => handle_dispatch(cli.config, dir, target, dry_run),
+        Command::Memory { action } => handle_memory(action),
     }
 }
