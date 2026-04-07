@@ -120,6 +120,17 @@ enum Command {
         #[arg(long)]
         scanner: Option<String>,
     },
+
+    /// Mine dismissed findings for recurring patterns and suggest suppression rules
+    Learn {
+        /// Project root directory (defaults to current directory)
+        #[arg(short, long, default_value = ".")]
+        dir: PathBuf,
+
+        /// Minimum cluster size to generate a suggestion
+        #[arg(long, default_value = "3")]
+        min_cluster: usize,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -615,6 +626,7 @@ fn main() -> Result<()> {
             batch,
             scanner,
         } => handle_triage_cmd(cli.config, dir, batch, scanner),
+        Command::Learn { dir, min_cluster } => handle_learn(dir, min_cluster),
     }
 }
 
@@ -644,5 +656,29 @@ fn handle_dismiss(dir: PathBuf, finding_id: String, reason: String) -> Result<()
         .map_err(|e| miette::miette!("failed to save dismiss file: {e}"))?;
 
     eprintln!("{} dismissed {}", "done:".green().bold(), finding_id.cyan(),);
+    Ok(())
+}
+
+fn handle_learn(dir: PathBuf, min_cluster: usize) -> Result<()> {
+    let state = sentinella::state::load_state(&dir)
+        .map_err(|e| miette::miette!("failed to load state: {e}"))?;
+
+    let fp_count = state
+        .findings
+        .values()
+        .filter(|r| r.status == sentinella::state::FindingStatus::FalsePositive)
+        .count();
+
+    eprintln!(
+        "{} analyzing {} false-positive findings (min cluster: {})",
+        "info:".blue().bold(),
+        fp_count,
+        min_cluster,
+    );
+
+    let result = sentinella::pattern_miner::mine_patterns(&state, min_cluster);
+    let output = sentinella::pattern_miner::format_suggestions(&result);
+    println!("{output}");
+
     Ok(())
 }
