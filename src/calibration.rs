@@ -433,7 +433,7 @@ mod tests {
         }];
 
         let adjusted = apply_calibration(&results, &store);
-        assert_eq!(adjusted[0].findings[0].confidence, Confidence::Low);
+        assert_eq!(adjusted[0].findings[0].confidence, Confidence::Suspect);
     }
 
     #[test]
@@ -457,8 +457,8 @@ mod tests {
         }];
 
         let adjusted = apply_calibration(&results, &store);
-        // Confidence should remain High (default)
-        assert_eq!(adjusted[0].findings[0].confidence, Confidence::High);
+        // Confidence should remain Likely (default) — insufficient samples
+        assert_eq!(adjusted[0].findings[0].confidence, Confidence::Likely);
     }
 
     #[test]
@@ -479,6 +479,7 @@ mod tests {
         let mut state = ProjectState {
             version: 1,
             findings: HashMap::new(),
+            last_scan: None,
         };
         state.findings.insert(
             "test:key".into(),

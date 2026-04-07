@@ -108,7 +108,7 @@ pub fn save_state(root: &Path, state: &ProjectState) -> anyhow::Result<()> {
 // ---------------------------------------------------------------------------
 
 /// Get today's date as an ISO-8601 string (`YYYY-MM-DD`).
-fn today_iso() -> String {
+pub fn today_iso() -> String {
     let epoch_secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()

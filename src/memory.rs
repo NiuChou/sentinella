@@ -342,6 +342,7 @@ fn apply_effects_to_finding(
     Some(Finding {
         scanner: finding.scanner.clone(),
         severity,
+        confidence: finding.confidence,
         message: finding.message.clone(),
         file: finding.file.clone(),
         line: finding.line,
