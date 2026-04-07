@@ -2,6 +2,7 @@ pub mod architecture;
 pub mod loader;
 pub mod schema;
 
+pub use crate::suppress::SuppressConfig;
 pub use loader::{load_config_auto, load_config_from_dir};
 pub use schema::{
     Config, DeployConfig, DispatchConfig, DispatchTarget, EnvConfig, EventConfig, FlowConfig,

@@ -265,6 +265,7 @@ mod tests {
             data_isolation: Default::default(),
             required_layers: Default::default(),
             linked_repos: Vec::new(),
+            suppress: None,
         }
     }
 

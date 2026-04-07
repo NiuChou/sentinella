@@ -520,6 +520,7 @@ mod tests {
             data_isolation: Default::default(),
             required_layers: Default::default(),
             linked_repos: Default::default(),
+            suppress: None,
         }
     }
 
