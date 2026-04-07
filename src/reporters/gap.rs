@@ -1,6 +1,6 @@
 use owo_colors::OwoColorize;
 
-use crate::scanners::types::{Finding, ScanResult, Severity};
+use crate::scanners::types::{Confidence, Finding, ScanResult, Severity};
 
 /// Output format for gap reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,7 +60,11 @@ fn render_terminal(results: &[ScanResult]) -> String {
 
         for finding in &group {
             let location = format_location(finding);
-            buf.push_str(&format!("    {} {}\n", location, finding.message));
+            let confidence_tag = format_confidence_tag(finding.confidence);
+            buf.push_str(&format!(
+                "    {} {}{}\n",
+                location, confidence_tag, finding.message
+            ));
 
             if let Some(suggestion) = &finding.suggestion {
                 buf.push_str(&format!("      {} {suggestion}\n", "hint:".dimmed()));
@@ -76,6 +80,14 @@ fn format_location(finding: &Finding) -> String {
         (Some(file), Some(line)) => format!("{}:{line}:", file.display()),
         (Some(file), None) => format!("{}:", file.display()),
         _ => format!("[{}]", finding.scanner),
+    }
+}
+
+fn format_confidence_tag(confidence: Confidence) -> String {
+    match confidence {
+        Confidence::Confirmed => String::new(),
+        Confidence::Likely => "(Likely) ".to_string(),
+        Confidence::Suspect => "(Suspect) ".to_string(),
     }
 }
 
@@ -129,8 +141,8 @@ fn render_markdown(results: &[ScanResult]) -> String {
         }
 
         md.push_str(&format!("## {label}\n\n"));
-        md.push_str("| Scanner | Location | Message | Suggestion |\n");
-        md.push_str("|---------|----------|---------|------------|\n");
+        md.push_str("| Scanner | Confidence | Location | Message | Suggestion |\n");
+        md.push_str("|---------|------------|----------|---------|------------|\n");
 
         for finding in &group {
             let location = match (&finding.file, finding.line) {
@@ -140,8 +152,8 @@ fn render_markdown(results: &[ScanResult]) -> String {
             };
             let suggestion = finding.suggestion.as_deref().unwrap_or("-");
             md.push_str(&format!(
-                "| {} | {} | {} | {} |\n",
-                finding.scanner, location, finding.message, suggestion
+                "| {} | {} | {} | {} | {} |\n",
+                finding.scanner, finding.confidence, location, finding.message, suggestion
             ));
         }
         md.push('\n');
@@ -215,7 +227,13 @@ fn notion_finding_line(finding: &Finding) -> String {
         _ => format!("`[{}]`", finding.scanner),
     };
 
-    let mut line = format!("> - {location} {}\n", finding.message);
+    let confidence_tag = match finding.confidence {
+        Confidence::Confirmed => "",
+        Confidence::Likely => " `Likely`",
+        Confidence::Suspect => " `Suspect`",
+    };
+
+    let mut line = format!("> - {location}{confidence_tag} {}\n", finding.message);
 
     if let Some(suggestion) = &finding.suggestion {
         line.push_str(&format!(">   *Hint: {suggestion}*\n"));

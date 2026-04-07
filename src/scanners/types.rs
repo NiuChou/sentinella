@@ -1,4 +1,5 @@
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -25,10 +26,53 @@ impl fmt::Display for Severity {
     }
 }
 
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum Confidence {
+    Suspect,   // < 0.5 -- low confidence, likely false positive
+    Likely,    // 0.5-0.8 -- medium confidence, needs review
+    Confirmed, // >= 0.8 -- high confidence, AST-precise match
+}
+
+impl Confidence {
+    /// Create `Confidence` from a float score (0.0 - 1.0).
+    pub fn from_score(score: f64) -> Self {
+        if score >= 0.8 {
+            Confidence::Confirmed
+        } else if score >= 0.5 {
+            Confidence::Likely
+        } else {
+            Confidence::Suspect
+        }
+    }
+
+    /// Convert to a representative float.
+    pub fn as_score(&self) -> f64 {
+        match self {
+            Confidence::Confirmed => 0.95,
+            Confidence::Likely => 0.65,
+            Confidence::Suspect => 0.25,
+        }
+    }
+}
+
+impl fmt::Display for Confidence {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Confidence::Confirmed => write!(f, "Confirmed"),
+            Confidence::Likely => write!(f, "Likely"),
+            Confidence::Suspect => write!(f, "Suspect"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Finding {
     pub scanner: String,
     pub severity: Severity,
+    pub confidence: Confidence,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file: Option<PathBuf>,
@@ -43,6 +87,7 @@ impl Finding {
         Self {
             scanner: scanner.to_string(),
             severity,
+            confidence: Confidence::Likely,
             message: message.into(),
             file: None,
             line: None,
@@ -69,6 +114,38 @@ impl Finding {
             suggestion: Some(suggestion.into()),
             ..self
         }
+    }
+
+    pub fn with_confidence(self, confidence: Confidence) -> Self {
+        Self { confidence, ..self }
+    }
+
+    /// Generate a deterministic ID for tracking findings across runs.
+    ///
+    /// The ID is based on scanner name, relative file path, and a normalized
+    /// message pattern. Line numbers are excluded because code moves between
+    /// edits while the finding identity remains the same.
+    pub fn stable_id(&self, root: &std::path::Path) -> String {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.scanner.hash(&mut hasher);
+        if let Some(ref file) = self.file {
+            let rel = file.strip_prefix(root).unwrap_or(file);
+            rel.to_string_lossy().hash(&mut hasher);
+        }
+        self.normalize_message().hash(&mut hasher);
+        let hash = hasher.finish();
+        format!("{}-{:08x}", self.scanner, hash as u32)
+    }
+
+    fn normalize_message(&self) -> String {
+        // Replace HTTP methods + paths with placeholders to group similar findings
+        let re_method =
+            regex::Regex::new(r"(GET|POST|PUT|PATCH|DELETE)\s+\S+").expect("valid regex");
+        let normalized = re_method.replace_all(&self.message, "METHOD PATH");
+        // Replace specific line numbers
+        let re_line = regex::Regex::new(r"line \d+").expect("valid regex");
+        let normalized = re_line.replace_all(&normalized, "line N");
+        normalized.into_owned()
     }
 }
 
