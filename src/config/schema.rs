@@ -2,6 +2,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 use super::architecture::LinkedRepo;
+use crate::suppress::SuppressConfig;
 
 fn default_version() -> String {
     "1.0".into()
@@ -49,6 +50,9 @@ pub struct Config {
     pub required_layers: Vec<String>,
     #[serde(default)]
     pub linked_repos: Vec<LinkedRepo>,
+    /// Optional suppression configuration for silencing known false positives
+    #[serde(default)]
+    pub suppress: Option<SuppressConfig>,
 }
 
 // ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@ use sentinella::reporters::matrix;
 use sentinella::reporters::task_decomposer;
 use sentinella::scanners::types::{Confidence, ScanContext};
 use sentinella::scanners::{create_scanners, run_scanners};
+use sentinella::suppress;
 
 // ---------------------------------------------------------------------------
 // CLI definition
@@ -83,6 +84,20 @@ enum Command {
         /// Show what would be dispatched without sending
         #[arg(long, default_value_t = false)]
         dry_run: bool,
+    },
+
+    /// Dismiss a finding as a false positive
+    Dismiss {
+        /// Finding stable ID (e.g., S7-a3f2b1c0)
+        finding_id: String,
+
+        /// Reason for dismissal
+        #[arg(long)]
+        reason: String,
+
+        /// Project root directory (defaults to current directory)
+        #[arg(short, long, default_value = ".")]
+        dir: PathBuf,
     },
 }
 
@@ -215,7 +230,19 @@ fn handle_check(
         print_rule_pack_summary(&dir);
     }
 
-    let results = run_project_scanners(&cfg, &index, &dir, scanner_filter.as_deref())?;
+    let raw_results = run_project_scanners(&cfg, &index, &dir, scanner_filter.as_deref())?;
+
+    // Apply all suppression layers
+    let suppressions = suppress::SuppressionSet::from_index(&index);
+    let config_suppress = cfg.suppress.clone().unwrap_or_default();
+    let dismissals = suppress::load_dismissals(&dir).unwrap_or_default();
+    let results = suppress::apply_suppressions(
+        &raw_results,
+        &suppressions,
+        &config_suppress,
+        &dismissals,
+        &dir,
+    );
 
     let confidence_threshold = min_confidence.as_ref().map(to_confidence);
     render_check_output(&results, &cfg, &format, confidence_threshold, show_suspect);
@@ -481,5 +508,39 @@ fn main() -> Result<()> {
             target,
             dry_run,
         } => handle_dispatch(cli.config, dir, target, dry_run),
+        Command::Dismiss {
+            finding_id,
+            reason,
+            dir,
+        } => handle_dismiss(dir, finding_id, reason),
     }
+}
+
+fn handle_dismiss(dir: PathBuf, finding_id: String, reason: String) -> Result<()> {
+    let mut dismissals = suppress::load_dismissals(&dir)
+        .map_err(|e| miette::miette!("failed to load dismiss file: {e}"))?;
+
+    let scanner = finding_id.split('-').next().unwrap_or("").to_string();
+
+    let record = suppress::DismissRecord {
+        scanner,
+        file: None,
+        pattern: Some(finding_id.clone()),
+        reason,
+        by: std::env::var("USER").ok(),
+        at: suppress::today_iso(),
+    };
+
+    // Produce a new vec rather than mutating in place
+    let mut new_dismissed = dismissals.dismissed.clone();
+    new_dismissed.push(record);
+    dismissals = suppress::DismissFile {
+        dismissed: new_dismissed,
+    };
+
+    suppress::save_dismissals(&dir, &dismissals)
+        .map_err(|e| miette::miette!("failed to save dismiss file: {e}"))?;
+
+    eprintln!("{} dismissed {}", "done:".green().bold(), finding_id.cyan(),);
+    Ok(())
 }

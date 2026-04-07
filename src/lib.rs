@@ -6,3 +6,4 @@ pub mod reporters;
 pub mod rule_pack;
 pub mod scanners;
 pub mod state;
+pub mod suppress;
