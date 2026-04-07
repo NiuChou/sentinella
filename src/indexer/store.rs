@@ -44,6 +44,7 @@ pub struct IndexStore {
     pub test_bypass_refs: DashMap<PathBuf, Vec<TestBypassRef>>,
     pub token_refresh_refs: DashMap<PathBuf, Vec<TokenRefreshRef>>,
     pub concurrency_safety_refs: DashMap<PathBuf, Vec<ConcurrencySafetyRef>>,
+    pub evidence_store: crate::evidence::EvidenceStore,
 }
 
 impl IndexStore {
