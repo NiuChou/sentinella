@@ -1,5 +1,6 @@
 pub mod calibration;
 pub mod config;
+pub mod correlation;
 pub mod dispatchers;
 pub mod evidence;
 pub mod indexer;

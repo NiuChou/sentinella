@@ -70,6 +70,10 @@ enum Command {
         /// Include deprecated rules in the scan
         #[arg(long, default_value_t = false)]
         include_deprecated: bool,
+
+        /// Disable cross-scanner correlation
+        #[arg(long)]
+        no_correlation: bool,
     },
 
     /// Generate a starter config file
@@ -277,6 +281,7 @@ fn handle_check(
     verbose: bool,
     experimental: bool,
     include_deprecated: bool,
+    no_correlation: bool,
 ) -> Result<()> {
     let cfg = load_project_config(config_path.as_deref(), &dir)?;
 
@@ -322,7 +327,17 @@ fn handle_check(
     // Apply Bayesian calibration to adjust confidence scores
     let calibration_store = sentinella::calibration::load_calibration(&dir)
         .map_err(|e| miette::miette!("failed to load calibration: {e}"))?;
-    let results = sentinella::calibration::apply_calibration(&suppressed, &calibration_store);
+    let calibrated = sentinella::calibration::apply_calibration(&suppressed, &calibration_store);
+
+    // Apply cross-scanner correlation unless disabled
+    let results = if no_correlation {
+        calibrated
+    } else {
+        let groups = sentinella::correlation::correlate_findings(&calibrated);
+        let correlated = sentinella::correlation::apply_correlation(&calibrated, &groups);
+        print_correlation_summary(&groups, &format);
+        correlated
+    };
 
     let confidence_threshold = min_confidence.as_ref().map(to_confidence);
     render_check_output(&results, &cfg, &format, confidence_threshold, show_suspect);
@@ -582,6 +597,19 @@ fn handle_memory(action: MemoryAction) -> Result<()> {
     }
 }
 
+fn print_correlation_summary(
+    groups: &[sentinella::correlation::CorrelationGroup],
+    format: &CliOutputFormat,
+) {
+    if !matches!(format, CliOutputFormat::Terminal) {
+        return;
+    }
+    let summary = sentinella::correlation::format_correlation_summary(groups);
+    if !summary.is_empty() {
+        eprintln!("{} {}", "correlation:".blue().bold(), summary);
+    }
+}
+
 fn dispatch_tasks(tasks: &[task_decomposer::Task], target: &CliDispatchTarget, dry_run: bool) {
     match target {
         CliDispatchTarget::Stdout => {
@@ -624,6 +652,7 @@ fn main() -> Result<()> {
             verbose,
             experimental,
             include_deprecated,
+            no_correlation,
         } => handle_check(
             cli.config,
             dir,
@@ -635,6 +664,7 @@ fn main() -> Result<()> {
             verbose,
             experimental,
             include_deprecated,
+            no_correlation,
         ),
         Command::Dispatch {
             dir,
