@@ -134,7 +134,7 @@ fn scanner_results_have_valid_scanner_ids() {
     let valid_ids = [
         "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11", "S12", "S13", "S14",
         "S15", "S16", "S17", "S18", "S19", "S20", "S21", "S22", "S23", "S24", "S25", "S26", "S27",
-        "S28",
+        "S28", "S29", "S30", "S31", "S32", "S33",
     ];
 
     for result in &results {
@@ -149,7 +149,7 @@ fn scanner_results_have_valid_scanner_ids() {
 }
 
 #[test]
-fn all_twenty_seven_scanners_produce_results() {
+fn all_thirty_three_scanners_produce_results() {
     let (config, index) = build_fixture_index();
     let root = fixtures_dir();
 
@@ -163,8 +163,8 @@ fn all_twenty_seven_scanners_produce_results() {
     let results = run_scanners(&scanners, &ctx);
     assert_eq!(
         results.len(),
-        28,
-        "All 28 scanners should produce results, got {}",
+        33,
+        "All 33 scanners should produce results, got {}",
         results.len()
     );
 }

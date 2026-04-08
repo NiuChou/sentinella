@@ -262,6 +262,7 @@ mod tests {
             linked_repos: Vec::new(),
             suppress: None,
             scanner_overrides: Default::default(),
+            database_security: Default::default(),
         }
     }
 
@@ -309,6 +310,7 @@ mod tests {
                 table_name: "users".into(),
                 has_rls: false,
                 app_role: None,
+                ..Default::default()
             },
         );
 
@@ -336,6 +338,7 @@ mod tests {
                 table_name: "users".into(),
                 has_rls: false,
                 app_role: None,
+                ..Default::default()
             },
         );
 
@@ -373,6 +376,7 @@ mod tests {
                 table_name: "orders".into(),
                 has_rls: true,
                 app_role: Some("app_user".into()),
+                ..Default::default()
             },
         );
 
@@ -416,6 +420,7 @@ mod tests {
                 table_name: "_prisma_migrations".into(),
                 has_rls: false,
                 app_role: None,
+                ..Default::default()
             },
         );
 
@@ -442,6 +447,7 @@ mod tests {
                 table_name: "users".into(),
                 has_rls: false,
                 app_role: None,
+                ..Default::default()
             },
         );
 
@@ -480,6 +486,7 @@ mod tests {
                 table_name: "users".into(),
                 has_rls: false,
                 app_role: None,
+                ..Default::default()
             },
         );
         store.db_tables.insert(
@@ -489,6 +496,7 @@ mod tests {
                 table_name: "posts".into(),
                 has_rls: false,
                 app_role: None,
+                ..Default::default()
             },
         );
 

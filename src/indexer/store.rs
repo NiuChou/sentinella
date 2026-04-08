@@ -44,6 +44,7 @@ pub struct IndexStore {
     pub test_bypass_refs: DashMap<PathBuf, Vec<TestBypassRef>>,
     pub token_refresh_refs: DashMap<PathBuf, Vec<TokenRefreshRef>>,
     pub concurrency_safety_refs: DashMap<PathBuf, Vec<ConcurrencySafetyRef>>,
+    pub grant_details: DashMap<String, Vec<GrantDetail>>,
     pub evidence_store: crate::evidence::EvidenceStore,
 }
 
@@ -320,6 +321,13 @@ impl IndexStore {
 
     pub fn all_concurrency_safety_refs(&self) -> Vec<ConcurrencySafetyRef> {
         self.concurrency_safety_refs
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_grant_details(&self) -> Vec<GrantDetail> {
+        self.grant_details
             .iter()
             .flat_map(|entry| entry.value().clone())
             .collect()

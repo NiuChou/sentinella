@@ -221,6 +221,7 @@ mod tests {
             linked_repos: Default::default(),
             suppress: None,
             scanner_overrides: Default::default(),
+            database_security: Default::default(),
         }
     }
 

@@ -121,11 +121,14 @@ pub struct EventConsumer {
     pub line: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TableInfo {
     pub schema_name: Option<String>,
     pub table_name: String,
+    pub columns: Vec<String>,
     pub has_rls: bool,
+    pub has_force_rls: bool,
+    pub has_partition: bool,
     pub app_role: Option<String>,
 }
 
@@ -254,6 +257,18 @@ pub struct RlsPolicyInfo {
     pub session_var: Option<String>,
     pub has_force: bool,
     pub role: Option<String>,
+    /// Raw WITH CHECK expression text (for policy strength analysis).
+    pub with_check_expr: Option<String>,
+}
+
+/// Detailed GRANT information extracted from SQL migrations.
+#[derive(Debug, Clone)]
+pub struct GrantDetail {
+    pub table_name: String,
+    pub privileges: Vec<String>,
+    pub role: String,
+    /// Whether this is a blanket grant (e.g., GRANT ... ON ALL TABLES).
+    pub is_blanket: bool,
 }
 
 /// SQL query with table reference found in application code.

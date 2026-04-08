@@ -178,6 +178,7 @@ mod tests {
             linked_repos: Vec::new(),
             suppress: None,
             scanner_overrides: Default::default(),
+            database_security: Default::default(),
         }
     }
 

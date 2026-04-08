@@ -12,8 +12,8 @@ use sqlparser::parser::Parser;
 use super::{count_lines, hash_source, LanguageParser};
 use crate::indexer::store::IndexStore;
 use crate::indexer::types::{
-    ColumnLookupRef, FileInfo, Language, RlsPolicyInfo, SoftDeleteColumn, SoftDeleteType,
-    StatusLiteralRef, TableInfo, UniqueConstraintRef,
+    ColumnLookupRef, FileInfo, GrantDetail, Language, RlsPolicyInfo, SoftDeleteColumn,
+    SoftDeleteType, StatusLiteralRef, TableInfo, UniqueConstraintRef,
 };
 
 pub struct SqlParser;
@@ -42,6 +42,7 @@ impl LanguageParser for SqlParser {
         parse_rls_policies_regex(source_str, store);
         parse_rls_policy_details_regex(source_str, store);
         parse_force_rls_regex(source_str, store);
+        parse_blanket_grants_regex(source_str, store);
 
         // S14/D11: Extract soft-delete columns and status literals from AST
         extract_soft_delete_and_status(path, source_str, store);
@@ -94,10 +95,22 @@ fn extract_create_table(create_table: &sqlparser::ast::CreateTable, store: &Inde
     let (schema_name, table_name) = extract_object_name(&create_table.name);
     let key = make_key(&schema_name, &table_name);
 
+    let columns: Vec<String> = create_table
+        .columns
+        .iter()
+        .map(|col| col.name.value.to_lowercase())
+        .collect();
+
+    // Detect PARTITION BY from the AST (sqlparser stores it as partition_by)
+    let has_partition = create_table.partition_by.is_some();
+
     store.db_tables.entry(key).or_insert_with(|| TableInfo {
         schema_name,
         table_name,
+        columns,
         has_rls: false,
+        has_force_rls: false,
+        has_partition,
         app_role: None,
     });
 }
@@ -118,6 +131,7 @@ fn extract_alter_table(alter_table: &sqlparser::ast::AlterTable, store: &IndexSt
                 // FORCE RLS also implies RLS is enabled
                 if let Some(mut entry) = store.db_tables.get_mut(&key) {
                     entry.has_rls = true;
+                    entry.has_force_rls = true;
                 }
                 // Update policy entries (also handled by regex fallback)
                 if let Some(mut policies) = store.rls_policies.get_mut(&key) {
@@ -148,6 +162,13 @@ fn extract_grant(grant: &sqlparser::ast::Grant, store: &IndexStore) {
         return;
     }
 
+    let privileges: Vec<String> = grant
+        .privileges
+        .to_string()
+        .split(',')
+        .map(|s| s.trim().to_uppercase())
+        .collect();
+
     for table_ref in table_refs {
         let (schema_name, table_name) = extract_object_name(table_ref);
         let key = make_key(&schema_name, &table_name);
@@ -155,6 +176,14 @@ fn extract_grant(grant: &sqlparser::ast::Grant, store: &IndexStore) {
         if let Some(mut entry) = store.db_tables.get_mut(&key) {
             entry.app_role = Some(role.clone());
         }
+
+        let detail = GrantDetail {
+            table_name: table_name.clone(),
+            privileges: privileges.clone(),
+            role: role.clone(),
+            is_blanket: false,
+        };
+        store.grant_details.entry(key).or_default().push(detail);
     }
 }
 
@@ -225,6 +254,34 @@ fn force_rls_re() -> &'static Regex {
     })
 }
 
+/// Extract the WITH CHECK(...) expression text from a policy definition context.
+/// Uses balanced-paren counting to handle arbitrary nesting depth.
+fn extract_with_check_expr(context: &str) -> Option<String> {
+    let upper = context.to_uppercase();
+    let start = upper.find("WITH CHECK")?;
+    let paren_start = context[start..].find('(')? + start;
+
+    let mut depth = 0;
+    let mut end = None;
+    for (i, ch) in context[paren_start..].char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = Some(paren_start + i);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let end = end?;
+    let inner = &context[paren_start + 1..end];
+    Some(inner.trim().to_string())
+}
+
 // Regex fallbacks used only when AST parsing fails entirely.
 
 fn create_table_re() -> &'static Regex {
@@ -264,13 +321,60 @@ fn parse_tables_regex(source: &str, store: &IndexStore) {
             .unwrap_or_default();
         let key = make_key(&schema_name, &table_name);
 
+        // Extract columns via regex from the CREATE TABLE body
+        let match_end = cap.get(0).map(|m| m.end()).unwrap_or(0);
+        let columns = extract_columns_regex(source, match_end);
+
+        let has_partition = {
+            let remaining = &source[match_end..];
+            // Look within the next ~2000 chars for PARTITION BY before next CREATE
+            let window = &remaining[..remaining.len().min(2000)];
+            window.to_uppercase().contains("PARTITION BY")
+        };
+
         store.db_tables.entry(key).or_insert_with(|| TableInfo {
             schema_name,
             table_name,
+            columns,
             has_rls: false,
+            has_force_rls: false,
+            has_partition,
             app_role: None,
         });
     }
+}
+
+/// SQL keywords that appear in column position but are not type names.
+const NON_TYPE_KEYWORDS: &[&str] = &[
+    "CONSTRAINT", "PRIMARY", "UNIQUE", "CHECK", "DEFAULT", "NOT", "REFERENCES",
+    "FOREIGN", "INDEX", "EXCLUDE", "PARTITION",
+];
+
+/// Extract column names from the CREATE TABLE body text via regex.
+/// Matches any identifier as a type (including custom domain types), then
+/// filters out SQL keywords that aren't types.
+fn extract_columns_regex(source: &str, offset: usize) -> Vec<String> {
+    static COL_RE: OnceLock<Regex> = OnceLock::new();
+    let col_re = COL_RE.get_or_init(|| {
+        // Match: <whitespace><column_name><space><type_identifier>
+        // where type_identifier is any word (possibly with schema prefix)
+        Regex::new(r"(?i)^\s+(\w+)\s+(?:\w+\.)?(\w+)(?:\s*\(|[\s,])").unwrap()
+    });
+
+    let remaining = &source[offset..];
+    // Find the closing paren of the CREATE TABLE columns
+    let end = remaining.find(");").unwrap_or(remaining.len().min(5000));
+    let body = &remaining[..end];
+
+    body.lines()
+        .filter_map(|line| col_re.captures(line))
+        .filter(|cap| {
+            let type_name = cap.get(2).map(|m| m.as_str().to_uppercase()).unwrap_or_default();
+            !NON_TYPE_KEYWORDS.contains(&type_name.as_str())
+        })
+        .filter_map(|cap| cap.get(1))
+        .map(|m| m.as_str().to_lowercase())
+        .collect()
 }
 
 /// Regex fallback: detect ALTER TABLE ... ENABLE ROW LEVEL SECURITY.
@@ -355,12 +459,16 @@ fn parse_rls_policy_details_regex(source: &str, store: &IndexStore) {
             .and_then(|sc| sc.get(1))
             .map(|m| m.as_str().to_string());
 
+        // Extract WITH CHECK expression
+        let with_check_expr = extract_with_check_expr(context);
+
         let info = RlsPolicyInfo {
             table_name: table,
             policy_name,
             session_var,
             has_force: false,
             role,
+            with_check_expr,
         };
 
         store.rls_policies.entry(key).or_default().push(info);
@@ -386,7 +494,71 @@ fn parse_force_rls_regex(source: &str, store: &IndexStore) {
 
         if let Some(mut entry) = store.db_tables.get_mut(&key) {
             entry.has_rls = true;
+            entry.has_force_rls = true;
         }
+    }
+}
+
+/// Regex: detect blanket GRANT patterns (GRANT ... ON ALL TABLES).
+fn parse_blanket_grants_regex(source: &str, store: &IndexStore) {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| {
+        Regex::new(r"(?i)GRANT\s+([\w\s,]+)\s+ON\s+ALL\s+TABLES\s+IN\s+SCHEMA\s+(\w+)\s+TO\s+(\w+)")
+            .unwrap()
+    });
+
+    for cap in re.captures_iter(source) {
+        let privs_str = cap.get(1).map(|m| m.as_str()).unwrap_or_default();
+        let schema = cap.get(2).map(|m| m.as_str()).unwrap_or("public");
+        let role = cap.get(3).map(|m| m.as_str()).unwrap_or_default();
+
+        let privileges: Vec<String> = privs_str
+            .split(',')
+            .map(|s| s.trim().to_uppercase())
+            .collect();
+
+        let detail = GrantDetail {
+            table_name: format!("ALL TABLES IN SCHEMA {}", schema),
+            privileges,
+            role: role.to_string(),
+            is_blanket: true,
+        };
+
+        store
+            .grant_details
+            .entry("__blanket__".to_string())
+            .or_default()
+            .push(detail);
+    }
+
+    // Also detect ALTER DEFAULT PRIVILEGES ... GRANT
+    static DEF_RE: OnceLock<Regex> = OnceLock::new();
+    let def_re = DEF_RE.get_or_init(|| {
+        Regex::new(r"(?i)ALTER\s+DEFAULT\s+PRIVILEGES.*?GRANT\s+([\w\s,]+)\s+ON\s+TABLES\s+TO\s+(\w+)")
+            .unwrap()
+    });
+
+    for cap in def_re.captures_iter(source) {
+        let privs_str = cap.get(1).map(|m| m.as_str()).unwrap_or_default();
+        let role = cap.get(2).map(|m| m.as_str()).unwrap_or_default();
+
+        let privileges: Vec<String> = privs_str
+            .split(',')
+            .map(|s| s.trim().to_uppercase())
+            .collect();
+
+        let detail = GrantDetail {
+            table_name: "DEFAULT PRIVILEGES ON TABLES".to_string(),
+            privileges,
+            role: role.to_string(),
+            is_blanket: true,
+        };
+
+        store
+            .grant_details
+            .entry("__blanket__".to_string())
+            .or_default()
+            .push(detail);
     }
 }
 

@@ -959,6 +959,7 @@ mod tests {
             linked_repos: Default::default(),
             suppress: None,
             scanner_overrides: Default::default(),
+            database_security: Default::default(),
         }
     }
 
@@ -1003,6 +1004,7 @@ mod tests {
                 table_name: "factor_results".into(),
                 has_rls: false,
                 app_role: None,
+                ..Default::default()
             },
         );
 
@@ -1036,6 +1038,7 @@ mod tests {
                 table_name: "users".into(),
                 has_rls: false,
                 app_role: None,
+                ..Default::default()
             },
         );
 
@@ -1078,6 +1081,7 @@ mod tests {
                 table_name: "sessions".into(),
                 has_rls: true,
                 app_role: Some("app_role".into()),
+                ..Default::default()
             },
         );
 
@@ -1089,6 +1093,7 @@ mod tests {
                 session_var: Some("app.current_user_id".into()),
                 has_force: true,
                 role: Some("app_role".into()),
+                with_check_expr: None,
             }],
         );
 
@@ -1121,6 +1126,7 @@ mod tests {
                 table_name: "audit_logs".into(),
                 has_rls: true,
                 app_role: None,
+                ..Default::default()
             },
         );
 
@@ -1190,6 +1196,7 @@ mod tests {
                 table_name: "_prisma_migrations".into(),
                 has_rls: false,
                 app_role: None,
+                ..Default::default()
             },
         );
 

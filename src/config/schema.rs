@@ -133,6 +133,8 @@ pub struct Config {
     pub dispatch: DispatchConfig,
     #[serde(default)]
     pub data_isolation: DataIsolationConfig,
+    #[serde(default)]
+    pub database_security: DatabaseSecurityConfig,
     /// Layers required for S2 cross-layer tracing. Defaults to ["backend", "bff", "hooks", "page"]
     #[serde(default = "default_required_layers")]
     pub required_layers: Vec<String>,
@@ -557,6 +559,196 @@ impl Default for DispatchConfig {
             notion_database_id: None,
             github_repo: None,
             auto_assign: false,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DatabaseSecurityConfig (S29-S33)
+// ---------------------------------------------------------------------------
+
+fn default_tenant_columns() -> Vec<String> {
+    vec![
+        "user_id".into(),
+        "session_id".into(),
+        "dm_id".into(),
+        "phone".into(),
+        "wechat_openid".into(),
+    ]
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DatabaseSecurityConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    // S29: RLS Coverage Gate
+    #[serde(default)]
+    pub rls_coverage: RlsCoverageConfig,
+
+    // S30: Permission Boundary
+    #[serde(default)]
+    pub permission_boundaries: PermissionBoundaryConfig,
+
+    // S31: Policy Strength
+    #[serde(default)]
+    pub policy_strength: PolicyStrengthConfig,
+
+    // S32: Cross-DB Integrity
+    #[serde(default)]
+    pub cross_db_integrity: CrossDbIntegrityConfig,
+
+    // S33: Append-Only Lifecycle
+    #[serde(default)]
+    pub append_only_lifecycle: AppendOnlyLifecycleConfig,
+}
+
+impl Default for DatabaseSecurityConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            rls_coverage: RlsCoverageConfig::default(),
+            permission_boundaries: PermissionBoundaryConfig::default(),
+            policy_strength: PolicyStrengthConfig::default(),
+            cross_db_integrity: CrossDbIntegrityConfig::default(),
+            append_only_lifecycle: AppendOnlyLifecycleConfig::default(),
+        }
+    }
+}
+
+// S29: RLS Coverage Gate config
+#[derive(Debug, Clone, Deserialize)]
+pub struct RlsCoverageConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Columns that indicate tenant data requiring RLS.
+    #[serde(default = "default_tenant_columns")]
+    pub tenant_columns: Vec<String>,
+    /// Tables exempt from RLS requirement (public/system data).
+    #[serde(default)]
+    pub exemptions: Vec<String>,
+}
+
+impl Default for RlsCoverageConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            tenant_columns: default_tenant_columns(),
+            exemptions: Vec::new(),
+        }
+    }
+}
+
+// S30: Permission Boundary config
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct RestrictedTableConfig {
+    pub table: String,
+    #[serde(default)]
+    pub deny_roles: Vec<String>,
+    #[serde(default)]
+    pub allow: Vec<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PermissionBoundaryConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub restricted_tables: Vec<RestrictedTableConfig>,
+    /// Regex patterns that flag dangerous blanket grants.
+    #[serde(default)]
+    pub flag_patterns: Vec<String>,
+}
+
+impl Default for PermissionBoundaryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            restricted_tables: Vec::new(),
+            flag_patterns: Vec::new(),
+        }
+    }
+}
+
+// S31: Policy Strength config
+#[derive(Debug, Clone, Deserialize)]
+pub struct PolicyStrengthConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Tables exempt from WITH CHECK(true) flagging.
+    #[serde(default)]
+    pub except_tables: Vec<String>,
+    /// Comment markers that exempt a policy (e.g., "-- open-insert:").
+    #[serde(default)]
+    pub except_comment_markers: Vec<String>,
+}
+
+impl Default for PolicyStrengthConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            except_tables: Vec::new(),
+            except_comment_markers: Vec::new(),
+        }
+    }
+}
+
+// S32: Cross-DB Integrity config
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct CrossDbRefConfig {
+    pub source_db: String,
+    pub column_pattern: String,
+    pub target_db: String,
+    #[serde(default)]
+    pub require_one_of: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CrossDbIntegrityConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub cross_db_refs: Vec<CrossDbRefConfig>,
+}
+
+impl Default for CrossDbIntegrityConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            cross_db_refs: Vec::new(),
+        }
+    }
+}
+
+// S33: Append-Only Lifecycle config
+#[derive(Debug, Clone, Deserialize)]
+pub struct AppendOnlyLifecycleConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Tables expected to grow unbounded that need archive/partition strategy.
+    #[serde(default)]
+    pub high_volume_tables: Vec<String>,
+    /// Patterns that satisfy the lifecycle requirement.
+    #[serde(default = "default_lifecycle_markers")]
+    pub lifecycle_markers: Vec<String>,
+}
+
+fn default_lifecycle_markers() -> Vec<String> {
+    vec![
+        "archive_".into(),
+        "PARTITION BY".into(),
+        "pg_partman".into(),
+    ]
+}
+
+impl Default for AppendOnlyLifecycleConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            high_volume_tables: Vec::new(),
+            lifecycle_markers: default_lifecycle_markers(),
         }
     }
 }

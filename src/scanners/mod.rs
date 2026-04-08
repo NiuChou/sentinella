@@ -1,5 +1,7 @@
 pub mod api_contract_drift;
+pub mod append_only_lifecycle;
 pub mod audit_log_completeness;
+pub mod cross_db_integrity;
 pub mod cross_layer_tracer;
 pub mod cross_service_duplication;
 pub mod data_isolation;
@@ -13,11 +15,14 @@ pub mod insecure_token_storage;
 pub mod integration_test_cov;
 pub mod missing_uniqueness;
 pub mod otp_replay_protection;
+pub mod permission_boundary;
 pub mod plan_drift;
+pub mod policy_strength;
 pub mod race_condition_safety;
 pub mod rate_limiting_coverage;
 pub mod refresh_token_rotation;
 pub mod residue_finder;
+pub mod rls_coverage_gate;
 pub mod role_hardcoding;
 pub mod security_completeness;
 pub mod sensitive_data_logging;
@@ -63,6 +68,11 @@ pub fn create_scanners(filter: Option<&str>) -> Vec<Box<dyn Scanner>> {
         Box::new(refresh_token_rotation::RefreshTokenRotation),  // S26
         Box::new(race_condition_safety::RaceConditionSafety),    // S27
         Box::new(doc_fact_drift::DocFactDrift),                  // S28
+        Box::new(rls_coverage_gate::RlsCoverageGate),            // S29
+        Box::new(permission_boundary::PermissionBoundary),       // S30
+        Box::new(policy_strength::PolicyStrength),               // S31
+        Box::new(cross_db_integrity::CrossDbIntegrity),          // S32
+        Box::new(append_only_lifecycle::AppendOnlyLifecycle),    // S33
     ];
 
     match filter {
@@ -87,7 +97,7 @@ const EXECUTION_LAYERS: &[&[&str]] = &[
     &["S2", "S9"],
     &[
         "S3", "S4", "S7", "S13", "S16", "S8", "S12", "S14", "S18", "S19", "S21", "S22", "S26",
-        "S27",
+        "S27", "S29", "S30", "S31", "S32", "S33",
     ],
     &["S10", "S11", "S15", "S23", "S24", "S28"],
     &["S5"],
