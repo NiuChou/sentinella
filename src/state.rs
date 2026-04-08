@@ -119,7 +119,7 @@ pub fn today_iso() -> String {
 /// Convert a unix timestamp to `YYYY-MM-DD` without the chrono crate.
 ///
 /// Algorithm from <http://howardhinnant.github.io/date_algorithms.html>.
-fn chrono_free_date(epoch_secs: u64) -> String {
+pub(crate) fn chrono_free_date(epoch_secs: u64) -> String {
     let mut days = (epoch_secs / 86400) as i64;
 
     days += 719_468;

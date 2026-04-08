@@ -381,7 +381,7 @@ fn handle_check(
         format!("{arch}").cyan(),
     );
 
-    let index = build_project_index_for_arch(&dir, &cfg, &arch, &lifecycle_policy)?;
+    let index = build_project_index_for_arch(&dir, &arch, &lifecycle_policy)?;
 
     if verbose {
         print_rule_pack_summary(&dir);
@@ -449,7 +449,7 @@ fn handle_dispatch(
     );
 
     let default_policy = sentinella::rule_lifecycle::LifecyclePolicy::default();
-    let index = build_project_index_for_arch(&dir, &cfg, &arch, &default_policy)?;
+    let index = build_project_index_for_arch(&dir, &arch, &default_policy)?;
     let results = run_project_scanners(&cfg, &index, &dir, None)?;
 
     let tasks = task_decomposer::decompose(&results);
@@ -468,7 +468,7 @@ fn handle_triage_cmd(
 
     let arch = detect_architecture(&dir, &cfg.linked_repos);
     let default_policy = sentinella::rule_lifecycle::LifecyclePolicy::default();
-    let index = build_project_index_for_arch(&dir, &cfg, &arch, &default_policy)?;
+    let index = build_project_index_for_arch(&dir, &arch, &default_policy)?;
     let results = run_project_scanners(&cfg, &index, &dir, scanner_filter.as_deref())?;
 
     let calibration_store = sentinella::calibration::load_calibration(&dir)
@@ -500,7 +500,6 @@ fn load_project_config(
 
 fn build_project_index_for_arch(
     dir: &std::path::Path,
-    cfg: &config::Config,
     arch: &Architecture,
     lifecycle_policy: &sentinella::rule_lifecycle::LifecyclePolicy,
 ) -> Result<Arc<sentinella::indexer::store::IndexStore>> {
@@ -509,7 +508,7 @@ fn build_project_index_for_arch(
     let roots = collect_roots_for_arch(dir, arch);
     let root_refs: Vec<&std::path::Path> = roots.iter().map(|p| p.as_path()).collect();
 
-    let index = build_index_multi(&root_refs, cfg, lifecycle_policy)
+    let index = build_index_multi(&root_refs, lifecycle_policy)
         .map_err(|e| miette::miette!("failed to build file index: {e}"))?;
 
     eprintln!(
@@ -637,27 +636,17 @@ fn print_evidence_summary(
     }
 }
 
-fn sync_and_save_state(
-    dir: &std::path::Path,
-    results: &[sentinella::scanners::types::ScanResult],
-) {
+fn sync_and_save_state(dir: &std::path::Path, results: &[sentinella::scanners::types::ScanResult]) {
     let current_ids: Vec<String> = results
         .iter()
-        .flat_map(|r| {
-            r.findings
-                .iter()
-                .map(|f| f.stable_id(dir))
-        })
+        .flat_map(|r| r.findings.iter().map(|f| f.stable_id(dir)))
         .collect();
 
     let existing_state = sentinella::state::load_state(dir).unwrap_or_default();
     let new_state = sentinella::state::sync_findings(&existing_state, &current_ids, dir);
 
     if let Err(e) = sentinella::state::save_state(dir, &new_state) {
-        eprintln!(
-            "{} failed to save state: {e}",
-            "warn:".yellow().bold(),
-        );
+        eprintln!("{} failed to save state: {e}", "warn:".yellow().bold(),);
     }
 }
 
@@ -945,12 +934,7 @@ fn handle_dismiss(dir: PathBuf, finding_id: String, reason: String) -> Result<()
         at: suppress::today_iso(),
     };
 
-    // Produce a new vec rather than mutating in place
-    let mut new_dismissed = dismissals.dismissed.clone();
-    new_dismissed.push(record);
-    dismissals = suppress::DismissFile {
-        dismissed: new_dismissed,
-    };
+    dismissals.dismissed.push(record);
 
     suppress::save_dismissals(&dir, &dismissals)
         .map_err(|e| miette::miette!("failed to save dismiss file: {e}"))?;

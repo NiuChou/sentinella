@@ -81,13 +81,10 @@ pub fn list_packs(root_dir: &Path) -> Vec<PackInfo> {
 }
 
 fn user_rules_dir() -> PathBuf {
-    dirs_home().join(".sentinella").join("rules")
-}
-
-fn dirs_home() -> PathBuf {
-    std::env::var("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("/tmp"))
+    crate::rule_pack::loader::home_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join(".sentinella")
+        .join("rules")
 }
 
 fn collect_packs_from_dir(dir: &Path, source: PackSource, packs: &mut Vec<PackInfo>) {
@@ -107,10 +104,7 @@ fn collect_packs_from_dir(dir: &Path, source: PackSource, packs: &mut Vec<PackIn
 }
 
 fn is_yaml_file(path: &Path) -> bool {
-    matches!(
-        path.extension().and_then(|e| e.to_str()),
-        Some("yaml" | "yml")
-    )
+    crate::rule_pack::loader::is_yaml_file(path)
 }
 
 fn load_pack_info(path: &Path, source: PackSource) -> Option<PackInfo> {

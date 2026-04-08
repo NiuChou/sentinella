@@ -676,7 +676,8 @@ fn extract_k8s_yaml(path: &Path) -> Vec<Fact> {
 
     let replica_re = regex::Regex::new(r"^\s*replicas:\s*(\d+)").unwrap();
     let image_re = regex::Regex::new(r"^\s*-?\s*image:\s*(.+)$").unwrap();
-    let port_re = regex::Regex::new(r"^\s*-?\s*(?:containerPort|port|targetPort):\s*(\d+)").unwrap();
+    let port_re =
+        regex::Regex::new(r"^\s*-?\s*(?:containerPort|port|targetPort):\s*(\d+)").unwrap();
     let cpu_re = regex::Regex::new(r#"^\s*cpu:\s*"?(\S+)"?"#).unwrap();
     let mem_re = regex::Regex::new(r#"^\s*memory:\s*"?(\S+)"?"#).unwrap();
 
@@ -828,7 +829,8 @@ pub fn parse_doc_claims(content: &str, file: &Path) -> Vec<DocClaim> {
     let dep_re =
         regex::Regex::new(r"(?i)\b(?:requires?|depends?\s+on|built\s+(?:with|on))\s+[`*]*(\w[\w-]*)[`*]*(?:\s+([v\d][\d.]+))?")
             .unwrap();
-    let module_count_re = regex::Regex::new(r"(?i)(\d+)\s+(?:modules?|services?|packages?)").unwrap();
+    let module_count_re =
+        regex::Regex::new(r"(?i)(\d+)\s+(?:modules?|services?|packages?)").unwrap();
     let replicas_re = regex::Regex::new(r"(?i)(\d+)\s+replicas?").unwrap();
 
     for (line_idx, line) in content.lines().enumerate() {
@@ -847,9 +849,7 @@ pub fn parse_doc_claims(content: &str, file: &Path) -> Vec<DocClaim> {
         }
         for caps in port_colon_re.captures_iter(line) {
             if !claims.iter().any(|c| {
-                c.line == line_num
-                    && c.category == FactCategory::Port
-                    && c.claimed_value == caps[1]
+                c.line == line_num && c.category == FactCategory::Port && c.claimed_value == caps[1]
             }) {
                 claims.push(DocClaim {
                     category: FactCategory::Port,
@@ -863,9 +863,7 @@ pub fn parse_doc_claims(content: &str, file: &Path) -> Vec<DocClaim> {
         }
         for caps in localhost_re.captures_iter(line) {
             if !claims.iter().any(|c| {
-                c.line == line_num
-                    && c.category == FactCategory::Port
-                    && c.claimed_value == caps[1]
+                c.line == line_num && c.category == FactCategory::Port && c.claimed_value == caps[1]
             }) {
                 claims.push(DocClaim {
                     category: FactCategory::Port,
@@ -953,7 +951,10 @@ pub fn parse_doc_claims(content: &str, file: &Path) -> Vec<DocClaim> {
         // Dependency mentions
         for caps in dep_re.captures_iter(line) {
             let name = caps[1].to_string();
-            let ver = caps.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let ver = caps
+                .get(2)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
             claims.push(DocClaim {
                 category: FactCategory::Dependency,
                 key: name,
@@ -1075,9 +1076,7 @@ pub fn detect_drifts(facts: &[Fact], claims: &[DocClaim]) -> Vec<Drift> {
             // Look for any fact with this dependency name as key
             let dep_facts: Vec<&&Fact> = fact_map
                 .iter()
-                .filter(|((cat, key), _)| {
-                    *cat == FactCategory::Dependency && key == &claim.key
-                })
+                .filter(|((cat, key), _)| *cat == FactCategory::Dependency && key == &claim.key)
                 .flat_map(|(_, v)| v)
                 .collect();
 
@@ -1122,9 +1121,7 @@ fn compare_fact_claim(fact: &Fact, claim: &DocClaim) -> Option<Drift> {
             "README says {category_label} is `{claim_val}` but {} has `{fact_val}`",
             fact.source_file.display()
         ),
-        suggestion: format!(
-            "Update README {category_label} from `{claim_val}` to `{fact_val}`"
-        ),
+        suggestion: format!("Update README {category_label} from `{claim_val}` to `{fact_val}`"),
         severity: Severity::Warning,
         confidence: Confidence::Confirmed,
         doc_file: claim.file.clone(),
@@ -1195,27 +1192,21 @@ tokio = { version = "1.35", features = ["full"] }
         .unwrap();
 
         let facts = extract_cargo_toml(&path);
-        assert!(facts.iter().any(|f| f.category == FactCategory::Version && f.value == "0.3.0"));
-        assert!(
-            facts
-                .iter()
-                .any(|f| f.category == FactCategory::RustEdition && f.value == "2021")
-        );
-        assert!(facts.iter().any(|f| f.category == FactCategory::License && f.value == "MIT"));
-        assert!(
-            facts
-                .iter()
-                .any(|f| f.category == FactCategory::Dependency
-                    && f.key == "serde"
-                    && f.value == "1.0")
-        );
-        assert!(
-            facts
-                .iter()
-                .any(|f| f.category == FactCategory::Dependency
-                    && f.key == "tokio"
-                    && f.value == "1.35")
-        );
+        assert!(facts
+            .iter()
+            .any(|f| f.category == FactCategory::Version && f.value == "0.3.0"));
+        assert!(facts
+            .iter()
+            .any(|f| f.category == FactCategory::RustEdition && f.value == "2021"));
+        assert!(facts
+            .iter()
+            .any(|f| f.category == FactCategory::License && f.value == "MIT"));
+        assert!(facts.iter().any(|f| f.category == FactCategory::Dependency
+            && f.key == "serde"
+            && f.value == "1.0"));
+        assert!(facts.iter().any(|f| f.category == FactCategory::Dependency
+            && f.key == "tokio"
+            && f.value == "1.35"));
     }
 
     #[test]
@@ -1243,20 +1234,12 @@ require (
                 .any(|f| f.category == FactCategory::GoModule
                     && f.value == "github.com/example/myapp")
         );
-        assert!(
-            facts
-                .iter()
-                .any(|f| f.category == FactCategory::Version
-                    && f.key == "go"
-                    && f.value == "1.22")
-        );
-        assert!(
-            facts
-                .iter()
-                .any(|f| f.category == FactCategory::Dependency
-                    && f.key == "github.com/gin-gonic/gin"
-                    && f.value == "v1.9.1")
-        );
+        assert!(facts
+            .iter()
+            .any(|f| f.category == FactCategory::Version && f.key == "go" && f.value == "1.22"));
+        assert!(facts.iter().any(|f| f.category == FactCategory::Dependency
+            && f.key == "github.com/gin-gonic/gin"
+            && f.value == "v1.9.1"));
     }
 
     #[test]
@@ -1282,11 +1265,9 @@ use (
             .find(|f| f.key == "workspace-module-count")
             .unwrap();
         assert_eq!(count_fact.value, "3");
-        assert!(
-            facts
-                .iter()
-                .any(|f| f.key == "workspace-module:api" && f.value == "api")
-        );
+        assert!(facts
+            .iter()
+            .any(|f| f.key == "workspace-module:api" && f.value == "api"));
     }
 
     #[test]
@@ -1305,47 +1286,36 @@ use (
         .unwrap();
 
         let facts = extract_package_json(&path);
-        assert!(facts.iter().any(|f| f.category == FactCategory::Version && f.value == "2.1.0"));
-        assert!(
-            facts
-                .iter()
-                .any(|f| f.category == FactCategory::License && f.value == "Apache-2.0")
-        );
-        assert!(facts.iter().any(|f| f.category == FactCategory::NodeVersion && f.value == ">=18"));
-        assert!(
-            facts
-                .iter()
-                .any(|f| f.category == FactCategory::Dependency && f.key == "express")
-        );
+        assert!(facts
+            .iter()
+            .any(|f| f.category == FactCategory::Version && f.value == "2.1.0"));
+        assert!(facts
+            .iter()
+            .any(|f| f.category == FactCategory::License && f.value == "Apache-2.0"));
+        assert!(facts
+            .iter()
+            .any(|f| f.category == FactCategory::NodeVersion && f.value == ">=18"));
+        assert!(facts
+            .iter()
+            .any(|f| f.category == FactCategory::Dependency && f.key == "express"));
     }
 
     #[test]
     fn extract_dockerfile_extracts_base_image_and_port() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("Dockerfile");
-        std::fs::write(
-            &path,
-            "FROM node:20-alpine AS builder\nEXPOSE 3000 8080\n",
-        )
-        .unwrap();
+        std::fs::write(&path, "FROM node:20-alpine AS builder\nEXPOSE 3000 8080\n").unwrap();
 
         let facts = extract_dockerfile(&path);
-        assert!(
-            facts
-                .iter()
-                .any(|f| f.category == FactCategory::DockerBaseImage
-                    && f.value == "node:20-alpine")
-        );
-        assert!(
-            facts
-                .iter()
-                .any(|f| f.category == FactCategory::Port && f.value == "3000")
-        );
-        assert!(
-            facts
-                .iter()
-                .any(|f| f.category == FactCategory::Port && f.value == "8080")
-        );
+        assert!(facts
+            .iter()
+            .any(|f| f.category == FactCategory::DockerBaseImage && f.value == "node:20-alpine"));
+        assert!(facts
+            .iter()
+            .any(|f| f.category == FactCategory::Port && f.value == "3000"));
+        assert!(facts
+            .iter()
+            .any(|f| f.category == FactCategory::Port && f.value == "8080"));
     }
 
     // -----------------------------------------------------------------------
@@ -1371,60 +1341,54 @@ Licensed under the MIT license.
 "#;
         let claims = parse_doc_claims(readme, Path::new("README.md"));
 
-        assert!(claims.iter().any(|c| c.category == FactCategory::Port && c.claimed_value == "3000"));
-        assert!(claims.iter().any(|c| c.category == FactCategory::Port && c.claimed_value == "8080"));
-        assert!(
-            claims
-                .iter()
-                .any(|c| c.category == FactCategory::Version
-                    && c.key == "go"
-                    && c.claimed_value == "1.21")
-        );
-        assert!(
-            claims
-                .iter()
-                .any(|c| c.category == FactCategory::NodeVersion && c.claimed_value == "18")
-        );
-        assert!(
-            claims
-                .iter()
-                .any(|c| c.category == FactCategory::PythonVersion && c.claimed_value == "3.11")
-        );
-        assert!(
-            claims
-                .iter()
-                .any(|c| c.category == FactCategory::License && c.claimed_value == "MIT")
-        );
+        assert!(claims
+            .iter()
+            .any(|c| c.category == FactCategory::Port && c.claimed_value == "3000"));
+        assert!(claims
+            .iter()
+            .any(|c| c.category == FactCategory::Port && c.claimed_value == "8080"));
+        assert!(claims.iter().any(|c| c.category == FactCategory::Version
+            && c.key == "go"
+            && c.claimed_value == "1.21"));
+        assert!(claims
+            .iter()
+            .any(|c| c.category == FactCategory::NodeVersion && c.claimed_value == "18"));
+        assert!(claims
+            .iter()
+            .any(|c| c.category == FactCategory::PythonVersion && c.claimed_value == "3.11"));
+        assert!(claims
+            .iter()
+            .any(|c| c.category == FactCategory::License && c.claimed_value == "MIT"));
     }
 
     #[test]
     fn parse_claims_extracts_dependency_mention() {
         let readme = "Built with `express` v4.18\nRequires gin v1.9\n";
         let claims = parse_doc_claims(readme, Path::new("README.md"));
-        assert!(claims.iter().any(|c| c.category == FactCategory::Dependency && c.key == "express"));
-        assert!(claims.iter().any(|c| c.category == FactCategory::Dependency && c.key == "gin"));
+        assert!(claims
+            .iter()
+            .any(|c| c.category == FactCategory::Dependency && c.key == "express"));
+        assert!(claims
+            .iter()
+            .any(|c| c.category == FactCategory::Dependency && c.key == "gin"));
     }
 
     #[test]
     fn parse_claims_extracts_module_count() {
         let readme = "The workspace contains 5 modules.\n";
         let claims = parse_doc_claims(readme, Path::new("README.md"));
-        assert!(
-            claims
-                .iter()
-                .any(|c| c.key == "workspace-module-count" && c.claimed_value == "5")
-        );
+        assert!(claims
+            .iter()
+            .any(|c| c.key == "workspace-module-count" && c.claimed_value == "5"));
     }
 
     #[test]
     fn parse_claims_extracts_replica_count() {
         let readme = "Production runs 3 replicas behind a load balancer.\n";
         let claims = parse_doc_claims(readme, Path::new("README.md"));
-        assert!(
-            claims
-                .iter()
-                .any(|c| c.category == FactCategory::K8sReplica && c.claimed_value == "3")
-        );
+        assert!(claims
+            .iter()
+            .any(|c| c.category == FactCategory::K8sReplica && c.claimed_value == "3"));
     }
 
     // -----------------------------------------------------------------------
@@ -1582,22 +1546,18 @@ Licensed under the MIT license.
         .unwrap();
 
         let facts = extract_all_facts(dir.path());
-        assert!(
-            facts
-                .iter()
-                .any(|f| f.category == FactCategory::Port && f.value == "3000")
-        );
+        assert!(facts
+            .iter()
+            .any(|f| f.category == FactCategory::Port && f.value == "3000"));
 
         let docs = discover_doc_files(dir.path());
         assert!(!docs.is_empty());
 
         let content = std::fs::read_to_string(&docs[0]).unwrap();
         let claims = parse_doc_claims(&content, &docs[0]);
-        assert!(
-            claims
-                .iter()
-                .any(|c| c.category == FactCategory::Port && c.claimed_value == "8080")
-        );
+        assert!(claims
+            .iter()
+            .any(|c| c.category == FactCategory::Port && c.claimed_value == "8080"));
 
         let drifts = detect_drifts(&facts, &claims);
         assert_eq!(drifts.len(), 1);
@@ -1673,13 +1633,15 @@ services:
         .unwrap();
 
         let facts = extract_docker_compose(&path);
-        assert!(facts.iter().any(|f| f.category == FactCategory::Port && f.value == "80"));
-        assert!(facts.iter().any(|f| f.category == FactCategory::Port && f.value == "3000"));
-        assert!(
-            facts
-                .iter()
-                .any(|f| f.category == FactCategory::DockerBaseImage && f.value == "nginx:1.25")
-        );
+        assert!(facts
+            .iter()
+            .any(|f| f.category == FactCategory::Port && f.value == "80"));
+        assert!(facts
+            .iter()
+            .any(|f| f.category == FactCategory::Port && f.value == "3000"));
+        assert!(facts
+            .iter()
+            .any(|f| f.category == FactCategory::DockerBaseImage && f.value == "nginx:1.25"));
     }
 
     #[test]
@@ -1704,21 +1666,14 @@ spec:
         .unwrap();
 
         let facts = extract_k8s_manifests(dir.path());
-        assert!(
-            facts
-                .iter()
-                .any(|f| f.category == FactCategory::K8sReplica && f.value == "3")
-        );
-        assert!(
-            facts
-                .iter()
-                .any(|f| f.category == FactCategory::K8sImage
-                    && f.value == "myapp/api:v2.1.0")
-        );
-        assert!(
-            facts
-                .iter()
-                .any(|f| f.category == FactCategory::Port && f.value == "8080")
-        );
+        assert!(facts
+            .iter()
+            .any(|f| f.category == FactCategory::K8sReplica && f.value == "3"));
+        assert!(facts
+            .iter()
+            .any(|f| f.category == FactCategory::K8sImage && f.value == "myapp/api:v2.1.0"));
+        assert!(facts
+            .iter()
+            .any(|f| f.category == FactCategory::Port && f.value == "8080"));
     }
 }

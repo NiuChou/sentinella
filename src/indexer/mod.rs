@@ -18,13 +18,12 @@ use crate::rule_lifecycle::LifecyclePolicy;
 /// assumed to be generated artifacts and are silently skipped.
 const MAX_FILE_SIZE_BYTES: u64 = 1_024 * 1_024;
 
-pub fn build_index(root: &Path, config: &Config) -> Result<Arc<IndexStore>> {
-    build_index_multi(&[root], config, &LifecyclePolicy::default())
+pub fn build_index(root: &Path, _config: &Config) -> Result<Arc<IndexStore>> {
+    build_index_multi(&[root], &LifecyclePolicy::default())
 }
 
 pub fn build_index_multi(
     roots: &[&Path],
-    _config: &Config,
     lifecycle_policy: &LifecyclePolicy,
 ) -> Result<Arc<IndexStore>> {
     let store = IndexStore::new();

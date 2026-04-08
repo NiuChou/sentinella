@@ -144,15 +144,15 @@ pub fn resolve_rule_packs(project_root: &Path) -> Result<Vec<RulePack>> {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/// Get home directory path
-fn home_dir() -> Option<PathBuf> {
+/// Get home directory path.
+pub(crate) fn home_dir() -> Option<PathBuf> {
     std::env::var("HOME")
         .ok()
         .map(PathBuf::from)
         .or_else(|| std::env::var("USERPROFILE").ok().map(PathBuf::from))
 }
 
-fn is_yaml_file(path: &Path) -> bool {
+pub(crate) fn is_yaml_file(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| RULE_PACK_EXTENSIONS.contains(&ext))

@@ -47,7 +47,6 @@ struct PlanItem {
     name: String,
     expected_route: Option<String>,
     priority: String,
-    keywords: Vec<String>,
 }
 
 /// Build a result when no plan items are returned.
@@ -205,13 +204,10 @@ fn parse_single_page(page: &serde_json::Value) -> Option<PlanItem> {
     let title = extract_title(properties)?;
     let priority = extract_select(properties, "Priority").unwrap_or_else(|| "P2".to_string());
     let route = extract_rich_text(properties, "Route");
-    let keywords = build_keywords(&title);
-
     Some(PlanItem {
         name: title,
         expected_route: route,
         priority,
-        keywords,
     })
 }
 
@@ -249,15 +245,6 @@ fn extract_rich_text(properties: &serde_json::Value, prop_name: &str) -> Option<
     }
 
     Some(text.to_string())
-}
-
-/// Build search keywords from a plan item title.
-fn build_keywords(title: &str) -> Vec<String> {
-    title
-        .split_whitespace()
-        .map(|w| w.to_lowercase())
-        .filter(|w| w.len() > 2)
-        .collect()
 }
 
 /// Search the code index for evidence that a plan item has been implemented.
@@ -369,18 +356,6 @@ mod tests {
         assert_eq!(priority_to_severity("P1"), Severity::Warning);
         assert_eq!(priority_to_severity("P2"), Severity::Info);
         assert_eq!(priority_to_severity("unknown"), Severity::Info);
-    }
-
-    #[test]
-    fn test_build_keywords() {
-        let kw = build_keywords("Asset Upload Feature");
-        assert_eq!(kw, vec!["asset", "upload", "feature"]);
-    }
-
-    #[test]
-    fn test_build_keywords_filters_short_words() {
-        let kw = build_keywords("An API to use");
-        assert_eq!(kw, vec!["api", "use"]);
     }
 
     #[test]

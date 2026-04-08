@@ -8,19 +8,7 @@ const SCANNER_NAME: &str = "SecurityCompleteness";
 const SCANNER_DESC: &str =
     "Checks that API endpoints are protected by auth middleware (auth, guard, verify, jwt, session, protect).";
 
-// TODO(P1): move to rule pack YAML
-// Kept for the migration layer in evidence.rs and for test assertions.
-#[allow(dead_code)]
-const AUTH_KEYWORDS: &[&str] = &["auth", "guard", "verify", "jwt", "session", "protect"];
-
-const DEFAULT_AUTH_KEYWORDS: &[&str] = &["auth", "guard", "verify", "jwt", "session", "protect"];
-
 pub struct SecurityCompleteness;
-
-fn is_auth_middleware_with_keywords(name: &str, keywords: &[&str]) -> bool {
-    let lower = name.to_lowercase();
-    keywords.iter().any(|kw| lower.contains(kw))
-}
 
 fn is_mutating(method: HttpMethod) -> bool {
     matches!(
@@ -72,25 +60,6 @@ fn endpoint_protection(ctx: &ScanContext, file: &Path, line: usize) -> EvidenceR
         .has_protection(file, line, EvidenceKind::Auth)
 }
 
-fn endpoint_has_auth_scope(
-    ctx: &ScanContext,
-    file: &std::path::Path,
-    line: usize,
-    auth_keywords: &[&str],
-) -> bool {
-    ctx.index
-        .middleware_scopes
-        .get(file)
-        .map(|scopes| {
-            scopes.value().iter().any(|scope| {
-                line >= scope.line_start
-                    && line <= scope.line_end
-                    && is_auth_middleware_with_keywords(&scope.middleware_name, auth_keywords)
-            })
-        })
-        .unwrap_or(false)
-}
-
 impl Scanner for SecurityCompleteness {
     fn id(&self) -> &str {
         SCANNER_ID
@@ -105,20 +74,6 @@ impl Scanner for SecurityCompleteness {
     }
 
     fn scan(&self, ctx: &ScanContext) -> ScanResult {
-        // Read auth keywords from config override or fall back to defaults
-        let config_keywords: Vec<String> = ctx
-            .config
-            .scanner_overrides
-            .s7
-            .as_ref()
-            .map(|c| c.auth_keywords.clone())
-            .unwrap_or_default();
-        let auth_keywords: Vec<&str> = if config_keywords.is_empty() {
-            DEFAULT_AUTH_KEYWORDS.to_vec()
-        } else {
-            config_keywords.iter().map(|s| s.as_str()).collect()
-        };
-
         let all_endpoints = ctx.index.all_api_endpoints();
         let mut findings: Vec<Finding> = Vec::new();
 
@@ -465,19 +420,6 @@ mod tests {
         // Low confidence (0.40 < 0.5) => Suspect => Warning
         assert_eq!(result.findings.len(), 1);
         assert_eq!(result.findings[0].severity, Severity::Warning);
-    }
-
-    #[test]
-    fn test_auth_keyword_matching() {
-        let kw = DEFAULT_AUTH_KEYWORDS;
-        assert!(is_auth_middleware_with_keywords("requireAuth", kw));
-        assert!(is_auth_middleware_with_keywords("jwtVerify", kw));
-        assert!(is_auth_middleware_with_keywords("sessionMiddleware", kw));
-        assert!(is_auth_middleware_with_keywords("protectRoute", kw));
-        assert!(is_auth_middleware_with_keywords("authGuard", kw));
-        assert!(!is_auth_middleware_with_keywords("rateLimiter", kw));
-        assert!(!is_auth_middleware_with_keywords("cors", kw));
-        assert!(!is_auth_middleware_with_keywords("logger", kw));
     }
 
     #[test]

@@ -55,7 +55,6 @@ pub fn overall_score(results: &[ScanResult]) -> u8 {
 /// Coverage status for a single layer within a module.
 struct LayerStatus {
     covered: bool,
-    detail: String,
 }
 
 /// Assessed coverage for one module across all layers.
@@ -86,29 +85,15 @@ fn assess_module(
     let layers: Vec<(String, LayerStatus)> = required_layers
         .iter()
         .map(|layer_name| {
-            let status = match module_layer_pattern(module, layer_name) {
-                Some(pattern) => LayerStatus {
-                    covered: true,
-                    detail: format!("pattern:{pattern}"),
-                },
-                None => LayerStatus {
-                    covered: false,
-                    detail: String::new(),
-                },
+            let status = LayerStatus {
+                covered: module_layer_pattern(module, layer_name).is_some(),
             };
             (layer_name.clone(), status)
         })
         .collect();
 
     let has_flow = has_module_flow(&module.name, flows);
-    let flow = LayerStatus {
-        covered: has_flow,
-        detail: if has_flow {
-            "yes".into()
-        } else {
-            String::new()
-        },
-    };
+    let flow = LayerStatus { covered: has_flow };
 
     let score_pct = compute_module_score(&layers, &flow);
 
@@ -389,20 +374,9 @@ mod tests {
     fn compute_module_score_all_covered() {
         let layers: Vec<(String, LayerStatus)> = default_required_layers()
             .into_iter()
-            .map(|name| {
-                (
-                    name,
-                    LayerStatus {
-                        covered: true,
-                        detail: String::new(),
-                    },
-                )
-            })
+            .map(|name| (name, LayerStatus { covered: true }))
             .collect();
-        let flow = LayerStatus {
-            covered: true,
-            detail: String::new(),
-        };
+        let flow = LayerStatus { covered: true };
         assert_eq!(compute_module_score(&layers, &flow), 100);
     }
 
@@ -410,20 +384,9 @@ mod tests {
     fn compute_module_score_none_covered() {
         let layers: Vec<(String, LayerStatus)> = default_required_layers()
             .into_iter()
-            .map(|name| {
-                (
-                    name,
-                    LayerStatus {
-                        covered: false,
-                        detail: String::new(),
-                    },
-                )
-            })
+            .map(|name| (name, LayerStatus { covered: false }))
             .collect();
-        let flow = LayerStatus {
-            covered: false,
-            detail: String::new(),
-        };
+        let flow = LayerStatus { covered: false };
         assert_eq!(compute_module_score(&layers, &flow), 0);
     }
 
@@ -433,20 +396,9 @@ mod tests {
         let layers: Vec<(String, LayerStatus)> = default_required_layers()
             .into_iter()
             .enumerate()
-            .map(|(i, name)| {
-                (
-                    name,
-                    LayerStatus {
-                        covered: i == 0,
-                        detail: String::new(),
-                    },
-                )
-            })
+            .map(|(i, name)| (name, LayerStatus { covered: i == 0 }))
             .collect();
-        let flow = LayerStatus {
-            covered: false,
-            detail: String::new(),
-        };
+        let flow = LayerStatus { covered: false };
         assert_eq!(compute_module_score(&layers, &flow), 20);
     }
 
@@ -461,20 +413,9 @@ mod tests {
         ];
         let layers: Vec<(String, LayerStatus)> = required
             .into_iter()
-            .map(|name| {
-                (
-                    name,
-                    LayerStatus {
-                        covered: true,
-                        detail: String::new(),
-                    },
-                )
-            })
+            .map(|name| (name, LayerStatus { covered: true }))
             .collect();
-        let flow = LayerStatus {
-            covered: true,
-            detail: String::new(),
-        };
+        let flow = LayerStatus { covered: true };
         assert_eq!(compute_module_score(&layers, &flow), 100);
     }
 
