@@ -436,7 +436,10 @@ languages: [rust]
         };
 
         let tier1 = vec![mk("shared", PackSource::Project)];
-        let tier2 = vec![mk("shared", PackSource::User), mk("extra", PackSource::User)];
+        let tier2 = vec![
+            mk("shared", PackSource::User),
+            mk("extra", PackSource::User),
+        ];
 
         let merged = merge_packs_by_priority(vec![tier1, tier2]);
         assert_eq!(merged.len(), 2);

@@ -348,10 +348,7 @@ data_source_evidence:
     }
 
     fn write_temp_yaml(content: &str) -> tempfile::NamedTempFile {
-        let mut f = tempfile::Builder::new()
-            .suffix(".yaml")
-            .tempfile()
-            .unwrap();
+        let mut f = tempfile::Builder::new().suffix(".yaml").tempfile().unwrap();
         f.write_all(content.as_bytes()).unwrap();
         f.flush().unwrap();
         f
@@ -364,7 +361,10 @@ data_source_evidence:
             .iter()
             .filter(|e| e.severity == ValidationSeverity::Error)
             .collect();
-        assert!(hard_errors.is_empty(), "expected no errors: {hard_errors:?}");
+        assert!(
+            hard_errors.is_empty(),
+            "expected no errors: {hard_errors:?}"
+        );
     }
 
     #[test]

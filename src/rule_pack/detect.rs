@@ -196,8 +196,7 @@ fn detect_java(root: &Path, stack: &mut Vec<TechStackEntry>) {
     if !found {
         for gradle_path in &gradle_paths {
             if let Ok(content) = std::fs::read_to_string(gradle_path) {
-                if content.contains("spring-boot") || content.contains("org.springframework.boot")
-                {
+                if content.contains("spring-boot") || content.contains("org.springframework.boot") {
                     stack.push(TechStackEntry {
                         name: "spring-boot".into(),
                         confidence: 0.95,

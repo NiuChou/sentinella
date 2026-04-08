@@ -123,10 +123,7 @@ fn validate_protection_evidence_rules(
             issues.push(ValidationIssue {
                 rule_name: Some(rule.name.clone()),
                 field: "protection_evidence.confidence".into(),
-                message: format!(
-                    "confidence must be between 0.0 and 1.0, got {}",
-                    confidence
-                ),
+                message: format!("confidence must be between 0.0 and 1.0, got {}", confidence),
                 level: IssueLevel::Error,
             });
         }
@@ -167,10 +164,7 @@ fn validate_data_source_rules(rules: &[DataSourceRule], issues: &mut Vec<Validat
             issues.push(ValidationIssue {
                 rule_name: Some(rule.name.clone()),
                 field: "data_source_evidence.confidence".into(),
-                message: format!(
-                    "confidence must be between 0.0 and 1.0, got {}",
-                    confidence
-                ),
+                message: format!("confidence must be between 0.0 and 1.0, got {}", confidence),
                 level: IssueLevel::Error,
             });
         }
@@ -195,7 +189,7 @@ fn validate_data_source_rules(rules: &[DataSourceRule], issues: &mut Vec<Validat
 mod tests {
     use super::*;
     use crate::evidence::{EvidenceKind, EvidenceScope};
-    use crate::rule_pack::schema::{ProvidesConfig, ProtectionEvidenceRule, RuleType};
+    use crate::rule_pack::schema::{ProtectionEvidenceRule, ProvidesConfig, RuleType};
 
     fn minimal_valid_pack() -> RulePack {
         RulePack {
