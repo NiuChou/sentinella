@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::Arc;
 
@@ -9,6 +9,7 @@ use owo_colors::OwoColorize;
 use sentinella::config;
 use sentinella::config::architecture::{detect_architecture, Architecture};
 use sentinella::indexer::build_index_multi;
+use sentinella::pack_manager;
 use sentinella::reporters::gap::{self, ReportFormat};
 use sentinella::reporters::matrix;
 use sentinella::reporters::task_decomposer;
@@ -149,6 +150,12 @@ enum Command {
         #[arg(long, default_value = "3")]
         min_cluster: usize,
     },
+
+    /// Manage rule packs (list, validate, install)
+    Pack {
+        #[command(subcommand)]
+        action: PackAction,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -203,6 +210,36 @@ enum CalibrateAction {
         /// Project root directory
         #[arg(short, long, default_value = ".")]
         dir: PathBuf,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum PackAction {
+    /// List all available rule packs
+    List {
+        /// Project root directory (defaults to current directory)
+        #[arg(short, long, default_value = ".")]
+        dir: PathBuf,
+    },
+
+    /// Validate a rule pack YAML file
+    Validate {
+        /// Path to the rule pack YAML file
+        path: PathBuf,
+    },
+
+    /// Install a rule pack
+    Install {
+        /// Path to the rule pack YAML file
+        source: PathBuf,
+
+        /// Project root directory (defaults to current directory)
+        #[arg(short, long, default_value = ".")]
+        dir: PathBuf,
+
+        /// Install globally (~/.sentinella/rules/) instead of project-local
+        #[arg(long)]
+        global: bool,
     },
 }
 
@@ -673,6 +710,66 @@ fn dispatch_tasks(tasks: &[task_decomposer::Task], target: &CliDispatchTarget, d
 }
 
 // ---------------------------------------------------------------------------
+// Pack subcommand handlers
+// ---------------------------------------------------------------------------
+
+fn handle_pack(action: PackAction) -> Result<()> {
+    match action {
+        PackAction::List { dir } => handle_pack_list(&dir),
+        PackAction::Validate { path } => handle_pack_validate(&path),
+        PackAction::Install {
+            source,
+            dir,
+            global,
+        } => handle_pack_install(&source, &dir, global),
+    }
+}
+
+fn handle_pack_list(dir: &Path) -> Result<()> {
+    let packs = pack_manager::list_packs(dir);
+    let output = pack_manager::format_pack_list(&packs);
+    println!("{output}");
+    Ok(())
+}
+
+fn handle_pack_validate(path: &Path) -> Result<()> {
+    let errors = pack_manager::validate_pack(path);
+    if errors.is_empty() {
+        eprintln!("{} pack is valid", "ok:".green().bold());
+        return Ok(());
+    }
+    for e in &errors {
+        let tag = match e.severity {
+            pack_manager::ValidationSeverity::Error => "error:".red().bold().to_string(),
+            pack_manager::ValidationSeverity::Warning => "warn:".yellow().bold().to_string(),
+        };
+        eprintln!("{tag} [{}] {}", e.field, e.message);
+    }
+    let has_error = errors
+        .iter()
+        .any(|e| e.severity == pack_manager::ValidationSeverity::Error);
+    if has_error {
+        process::exit(1);
+    }
+    Ok(())
+}
+
+fn handle_pack_install(source: &Path, dir: &Path, global: bool) -> Result<()> {
+    let scope = if global {
+        pack_manager::InstallScope::User
+    } else {
+        pack_manager::InstallScope::Project
+    };
+    match pack_manager::install_pack(source, dir, scope) {
+        Ok(msg) => {
+            eprintln!("{} {msg}", "done:".green().bold());
+            Ok(())
+        }
+        Err(msg) => Err(miette::miette!("{msg}")),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
@@ -724,6 +821,7 @@ fn main() -> Result<()> {
             scanner,
         } => handle_triage_cmd(cli.config, dir, batch, scanner),
         Command::Learn { dir, min_cluster } => handle_learn(dir, min_cluster),
+        Command::Pack { action } => handle_pack(action),
     }
 }
 

@@ -6,6 +6,7 @@ pub mod dispatchers;
 pub mod evidence;
 pub mod indexer;
 pub mod memory;
+pub mod pack_manager;
 pub mod pattern_miner;
 pub mod reporters;
 pub mod rule_lifecycle;
