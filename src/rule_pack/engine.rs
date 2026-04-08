@@ -237,6 +237,8 @@ mod tests {
             data_source_evidence: vec![],
             error_handling: Default::default(),
             sensitive_logging: Default::default(),
+            description: None,
+            source: None,
         }
     }
 

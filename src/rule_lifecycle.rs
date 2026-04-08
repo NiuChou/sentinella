@@ -76,6 +76,8 @@ pub fn filter_rules_by_lifecycle(pack: &RulePack, policy: &LifecyclePolicy) -> R
         data_source_evidence,
         error_handling: pack.error_handling.clone(),
         sensitive_logging: pack.sensitive_logging.clone(),
+        description: pack.description.clone(),
+        source: pack.source,
     }
 }
 
@@ -202,6 +204,8 @@ mod tests {
             ],
             error_handling: Default::default(),
             sensitive_logging: Default::default(),
+            description: None,
+            source: None,
         }
     }
 
