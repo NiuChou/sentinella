@@ -18,10 +18,12 @@ Sentinella is a static analysis tool that scans your entire project — backend,
 
 ### Key Capabilities
 
-- **27 specialized scanners** covering stubs, security, deployment, API contracts, events, env vars, data isolation, auth security, and more
+- **28 specialized scanners** covering stubs, security, deployment, API contracts, events, env vars, data isolation, auth security, doc-fact drift, and more
 - **Tree-sitter AST parsing** for TypeScript, Python, and Go — no regex guessing
 - **Cross-layer tracing** from database to API to frontend page
 - **5-layer parallel execution** using Rayon for maximum performance
+- **Evidence-based check pipeline** — scan → suppress → memory → calibrate → correlate → filter → render → state sync
+- **Rule packs & lifecycle** — installable YAML rule packs with experimental/deprecated lifecycle filtering
 - **Task dispatch** to Notion or GitHub Issues for actionable follow-up
 - **Single binary, zero runtime dependencies** — `< 15MB` release build
 
@@ -113,9 +115,21 @@ Generate task breakdowns and dispatch them.
 | `--target <TARGET>` | `-t` | `stdout` | Target: `stdout`, `notion`, `github` |
 | `--dry-run` | | `false` | Preview without sending |
 
+#### `sentinella pack`
+
+Manage YAML rule packs (built-in and community).
+
+| Subcommand | Description |
+|------------|-------------|
+| `pack list` | List all available rule packs (built-in + community) |
+| `pack validate <PATH>` | Validate a rule pack YAML file |
+| `pack install <PATH>` | Install a community rule pack |
+
+Built-in packs: `echo`, `chi`, `actix`, `axum`, `django`, `flask`, `spring-boot`, `rails`, `laravel`
+
 ## Scanners
 
-Sentinella includes 27 scanners organized into 5 execution layers:
+Sentinella includes 28 scanners organized into 5 execution layers:
 
 ### Layer 1 — Base Detection
 
@@ -162,6 +176,7 @@ Sentinella includes 27 scanners organized into 5 execution layers:
 | **S15** | Cross-Service Duplication | Duplicate business logic across services in monorepo projects |
 | **S23** | Audit Log Completeness | State-changing operations (login, DELETE, PUT, PATCH) without audit log calls |
 | **S24** | Missing Uniqueness | SQL WHERE equality lookup columns lacking UNIQUE constraints |
+| **S28** | Doc-Fact Drift | README/doc claims that contradict actual code (ports, deps, versions, images, env vars) |
 
 ### Layer 5 — Project
 
@@ -365,7 +380,7 @@ sentinella/
 │   │       ├── typescript/      # routes, imports, api_calls, middleware, env_refs
 │   │       ├── python/          # routes, env_refs
 │   │       └── go/              # routes
-│   ├── scanners/                # 27 scanners (S1–S27)
+│   ├── scanners/                # 28 scanners (S1–S28)
 │   ├── reporters/               # Matrix table, gap report, task decomposer
 │   └── dispatchers/             # stdout, Notion API, GitHub API
 ├── templates/                   # Starter config templates
@@ -396,7 +411,8 @@ sentinella/
                     │  L2: S2+S9             (parallel)  │
                     │  L3: S3+S4+S7+S8+S12+S13+S14+S16  │
                     │      +S18+S19+S21+S22+S26+S27      │
-                    │  L4: S10+S11+S15+S23+S24 (parallel)│
+                    │  L4: S10+S11+S15+S23+S24+S28       │
+                    │                        (parallel)  │
                     │  L5: S5                (sequential)│
                     └───────────────┬───────────────┘
                                     │
@@ -526,10 +542,12 @@ Sentinella 是一个静态分析工具，扫描你的整个项目 — 后端、B
 
 ### 核心能力
 
-- **27 个专业扫描器**，覆盖桩代码、安全性、部署就绪、API 契约、事件、环境变量、数据隔离、认证安全等
+- **28 个专业扫描器**，覆盖桩代码、安全性、部署就绪、API 契约、事件、环境变量、数据隔离、认证安全、文档事实漂移等
 - **Tree-sitter AST 解析**，支持 TypeScript、Python、Go — 精确语法分析，非正则猜测
 - **跨层追踪**，从数据库到 API 到前端页面
 - **5 层并行执行引擎**，基于 Rayon 实现最大性能
+- **证据驱动 Check 管道** — scan → suppress → memory → calibrate → correlate → filter → render → state sync
+- **规则包与生命周期** — 可安装的 YAML 规则包，支持 experimental/deprecated 生命周期过滤
 - **任务派发**至 Notion 或 GitHub Issues，生成可执行的修复任务
 - **单文件二进制，零运行时依赖** — 发布构建 `< 15MB`
 
@@ -615,9 +633,19 @@ sentinella [--config <路径>] <命令>
 | `--target <目标>` | `-t` | `stdout` | 目标：`stdout`、`notion`、`github` |
 | `--dry-run` | | `false` | 仅预览，不实际发送 |
 
+#### `sentinella pack` — 规则包管理
+
+| 子命令 | 说明 |
+|--------|------|
+| `pack list` | 列出所有可用规则包（内置 + 社区） |
+| `pack validate <路径>` | 验证规则包 YAML 文件 |
+| `pack install <路径>` | 安装社区规则包 |
+
+内置规则包：`echo`、`chi`、`actix`、`axum`、`django`、`flask`、`spring-boot`、`rails`、`laravel`
+
 ## 扫描器详解
 
-Sentinella 包含 27 个扫描器，分为 5 个执行层：
+Sentinella 包含 28 个扫描器，分为 5 个执行层：
 
 ### 第 1 层 — 基础检测
 
@@ -664,6 +692,7 @@ Sentinella 包含 27 个扫描器，分为 5 个执行层：
 | **S15** | 跨服务重复 | Monorepo 项目中跨服务的重复业务逻辑 |
 | **S23** | 审计日志完整性 | 状态变更操作（登录、DELETE、PUT、PATCH）缺少审计日志调用 |
 | **S24** | 缺失唯一约束 | SQL WHERE 等值查找列缺少 UNIQUE 约束 |
+| **S28** | 文档事实漂移 | README/文档中的声明与实际代码不一致（端口、依赖、版本、镜像、环境变量） |
 
 ### 第 5 层 — 项目
 
@@ -740,7 +769,7 @@ output:
 | `output` | 输出格式与最低覆盖率 | 全部 |
 | `dispatch` | 任务派发目标配置 | — |
 
-> S13-S27 为零配置扫描器，基于代码索引自动检测，无需额外配置项。
+> S13-S28 为零配置扫描器，基于代码索引自动检测，无需额外配置项。
 
 > 完整配置示例请参考 `templates/fullstack.yaml`
 
@@ -767,7 +796,8 @@ output:
                    │  L3: S3+S4+S7+S8+S12+S13+S14  │
                    │      +S16+S18+S19+S21+S22      │
                    │      +S26+S27          (并行)  │
-                   │  L4: S10+S11+S15+S23+S24(并行) │
+                   │  L4: S10+S11+S15+S23+S24+S28   │
+                   │                        (并行)  │
                    │  L5: S5               (串行)   │
                    └───────────────┬───────────────┘
                                    │
