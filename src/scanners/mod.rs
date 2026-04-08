@@ -5,6 +5,7 @@ pub mod cross_service_duplication;
 pub mod data_isolation;
 pub mod deploy_readiness;
 pub mod destructive_endpoint_safety;
+pub mod doc_fact_drift;
 pub mod env_config_drift;
 pub mod event_schema_drift;
 pub mod flow_analyzer;
@@ -61,6 +62,7 @@ pub fn create_scanners(filter: Option<&str>) -> Vec<Box<dyn Scanner>> {
         Box::new(test_bypass_detection::TestBypassDetection),    // S25
         Box::new(refresh_token_rotation::RefreshTokenRotation),  // S26
         Box::new(race_condition_safety::RaceConditionSafety),    // S27
+        Box::new(doc_fact_drift::DocFactDrift),                  // S28
     ];
 
     match filter {
@@ -87,7 +89,7 @@ const EXECUTION_LAYERS: &[&[&str]] = &[
         "S3", "S4", "S7", "S13", "S16", "S8", "S12", "S14", "S18", "S19", "S21", "S22", "S26",
         "S27",
     ],
-    &["S10", "S11", "S15", "S23", "S24"],
+    &["S10", "S11", "S15", "S23", "S24", "S28"],
     &["S5"],
 ];
 

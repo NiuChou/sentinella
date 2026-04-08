@@ -1,6 +1,6 @@
 [package]
 name = "sentinella"
-version = "3.3.0"
+version = "4.0.0"
 edition = "2021"
 description = "System completeness audit tool — detect stub code, cross-layer gaps, API contract drift, and generate task breakdowns"
 license = "MIT"

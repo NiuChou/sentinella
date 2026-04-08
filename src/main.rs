@@ -362,7 +362,7 @@ fn handle_check(
 ) -> Result<()> {
     let cfg = load_project_config(config_path.as_deref(), &dir)?;
 
-    let _lifecycle_policy = sentinella::rule_lifecycle::LifecyclePolicy {
+    let lifecycle_policy = sentinella::rule_lifecycle::LifecyclePolicy {
         include_experimental: experimental,
         include_deprecated,
     };
@@ -381,7 +381,7 @@ fn handle_check(
         format!("{arch}").cyan(),
     );
 
-    let index = build_project_index_for_arch(&dir, &cfg, &arch)?;
+    let index = build_project_index_for_arch(&dir, &cfg, &arch, &lifecycle_policy)?;
 
     if verbose {
         print_rule_pack_summary(&dir);
@@ -401,10 +401,15 @@ fn handle_check(
         &dir,
     );
 
+    // Apply context memories to adjust severity/confidence
+    let memories = sentinella::memory::load_memories(&dir).unwrap_or_default();
+    let memory_effects = sentinella::memory::parse_memory_effects(&memories);
+    let after_memory = sentinella::memory::apply_memories(&suppressed, &memory_effects);
+
     // Apply Bayesian calibration to adjust confidence scores
     let calibration_store = sentinella::calibration::load_calibration(&dir)
         .map_err(|e| miette::miette!("failed to load calibration: {e}"))?;
-    let calibrated = sentinella::calibration::apply_calibration(&suppressed, &calibration_store);
+    let calibrated = sentinella::calibration::apply_calibration(&after_memory, &calibration_store);
 
     // Apply cross-scanner correlation unless disabled
     let results = if no_correlation {
@@ -420,6 +425,9 @@ fn handle_check(
     render_check_output(&results, &cfg, &format, confidence_threshold, show_suspect);
 
     print_evidence_summary(&index, &format);
+
+    // Sync finding state: track Open/Confirmed/Fixed lifecycle
+    sync_and_save_state(&dir, &results);
 
     exit_on_coverage_failure(&results, min_coverage);
     Ok(())
@@ -440,7 +448,8 @@ fn handle_dispatch(
         format!("{arch}").cyan(),
     );
 
-    let index = build_project_index_for_arch(&dir, &cfg, &arch)?;
+    let default_policy = sentinella::rule_lifecycle::LifecyclePolicy::default();
+    let index = build_project_index_for_arch(&dir, &cfg, &arch, &default_policy)?;
     let results = run_project_scanners(&cfg, &index, &dir, None)?;
 
     let tasks = task_decomposer::decompose(&results);
@@ -458,7 +467,8 @@ fn handle_triage_cmd(
     let cfg = load_project_config(config_path.as_deref(), &dir)?;
 
     let arch = detect_architecture(&dir, &cfg.linked_repos);
-    let index = build_project_index_for_arch(&dir, &cfg, &arch)?;
+    let default_policy = sentinella::rule_lifecycle::LifecyclePolicy::default();
+    let index = build_project_index_for_arch(&dir, &cfg, &arch, &default_policy)?;
     let results = run_project_scanners(&cfg, &index, &dir, scanner_filter.as_deref())?;
 
     let calibration_store = sentinella::calibration::load_calibration(&dir)
@@ -492,13 +502,14 @@ fn build_project_index_for_arch(
     dir: &std::path::Path,
     cfg: &config::Config,
     arch: &Architecture,
+    lifecycle_policy: &sentinella::rule_lifecycle::LifecyclePolicy,
 ) -> Result<Arc<sentinella::indexer::store::IndexStore>> {
     eprintln!("{} building file index...", "info:".blue().bold());
 
     let roots = collect_roots_for_arch(dir, arch);
     let root_refs: Vec<&std::path::Path> = roots.iter().map(|p| p.as_path()).collect();
 
-    let index = build_index_multi(&root_refs, cfg)
+    let index = build_index_multi(&root_refs, cfg, lifecycle_policy)
         .map_err(|e| miette::miette!("failed to build file index: {e}"))?;
 
     eprintln!(
@@ -622,6 +633,30 @@ fn print_evidence_summary(
             "{} evidence: {} entries from rule packs and middleware migration",
             "info:".blue().bold(),
             evidence_count,
+        );
+    }
+}
+
+fn sync_and_save_state(
+    dir: &std::path::Path,
+    results: &[sentinella::scanners::types::ScanResult],
+) {
+    let current_ids: Vec<String> = results
+        .iter()
+        .flat_map(|r| {
+            r.findings
+                .iter()
+                .map(|f| f.stable_id(dir))
+        })
+        .collect();
+
+    let existing_state = sentinella::state::load_state(dir).unwrap_or_default();
+    let new_state = sentinella::state::sync_findings(&existing_state, &current_ids, dir);
+
+    if let Err(e) = sentinella::state::save_state(dir, &new_state) {
+        eprintln!(
+            "{} failed to save state: {e}",
+            "warn:".yellow().bold(),
         );
     }
 }

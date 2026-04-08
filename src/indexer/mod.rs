@@ -12,16 +12,21 @@ use rayon::prelude::*;
 
 use self::store::IndexStore;
 use crate::config::schema::Config;
+use crate::rule_lifecycle::LifecyclePolicy;
 
 /// Maximum file size to index (1 MB). Files exceeding this limit are
 /// assumed to be generated artifacts and are silently skipped.
 const MAX_FILE_SIZE_BYTES: u64 = 1_024 * 1_024;
 
 pub fn build_index(root: &Path, config: &Config) -> Result<Arc<IndexStore>> {
-    build_index_multi(&[root], config)
+    build_index_multi(&[root], config, &LifecyclePolicy::default())
 }
 
-pub fn build_index_multi(roots: &[&Path], _config: &Config) -> Result<Arc<IndexStore>> {
+pub fn build_index_multi(
+    roots: &[&Path],
+    _config: &Config,
+    lifecycle_policy: &LifecyclePolicy,
+) -> Result<Arc<IndexStore>> {
     let store = IndexStore::new();
     let parsers = parsers::all_parsers();
 
@@ -38,14 +43,14 @@ pub fn build_index_multi(roots: &[&Path], _config: &Config) -> Result<Arc<IndexS
     }
 
     // Load and execute rule packs against indexed source files
-    execute_rule_packs(roots, &store);
+    execute_rule_packs(roots, &store, lifecycle_policy);
 
     Ok(store)
 }
 
 /// Load rule packs, detect tech stack, and execute regex rules against
 /// all indexed source files. Evidence is written to `store.evidence_store`.
-fn execute_rule_packs(roots: &[&Path], store: &IndexStore) {
+fn execute_rule_packs(roots: &[&Path], store: &IndexStore, lifecycle_policy: &LifecyclePolicy) {
     for root in roots {
         let rule_packs = match crate::rule_pack::loader::resolve_rule_packs(root) {
             Ok(packs) => packs,
@@ -60,12 +65,14 @@ fn execute_rule_packs(roots: &[&Path], store: &IndexStore) {
 
         let detected_stack = crate::rule_pack::detect::detect_tech_stack(root);
 
+        // Filter by tech stack, then apply lifecycle policy
         let active_packs: Vec<_> = rule_packs
             .into_iter()
             .filter(|pack| {
                 detected_stack.iter().any(|entry| entry.name == pack.name) || pack.name == "custom"
                 // always load custom packs
             })
+            .map(|pack| crate::rule_lifecycle::filter_rules_by_lifecycle(&pack, lifecycle_policy))
             .collect();
 
         if detected_stack.is_empty() {
