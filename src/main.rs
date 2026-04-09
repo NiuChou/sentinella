@@ -347,7 +347,7 @@ fn handle_init(project_type: CliProjectType) -> Result<()> {
     Ok(())
 }
 
-fn handle_check(
+struct CheckOptions {
     config_path: Option<PathBuf>,
     dir: PathBuf,
     scanner_filter: Option<String>,
@@ -359,7 +359,22 @@ fn handle_check(
     experimental: bool,
     include_deprecated: bool,
     no_correlation: bool,
-) -> Result<()> {
+}
+
+fn handle_check(opts: CheckOptions) -> Result<()> {
+    let CheckOptions {
+        config_path,
+        dir,
+        scanner_filter,
+        format,
+        min_coverage,
+        min_confidence,
+        show_suspect,
+        verbose,
+        experimental,
+        include_deprecated,
+        no_correlation,
+    } = opts;
     let cfg = load_project_config(config_path.as_deref(), &dir)?;
 
     let lifecycle_policy = sentinella::rule_lifecycle::LifecyclePolicy {
@@ -814,10 +829,10 @@ fn main() -> Result<()> {
             experimental,
             include_deprecated,
             no_correlation,
-        } => handle_check(
-            cli.config,
+        } => handle_check(CheckOptions {
+            config_path: cli.config,
             dir,
-            scanner,
+            scanner_filter: scanner,
             format,
             min_coverage,
             min_confidence,
@@ -826,7 +841,7 @@ fn main() -> Result<()> {
             experimental,
             include_deprecated,
             no_correlation,
-        ),
+        }),
         Command::Dispatch {
             dir,
             target,

@@ -1561,11 +1561,7 @@ fn scan_token_refresh_ts(path: &Path, source: &[u8], store: &IndexStore) {
         if refresh_re.is_match(line_text) {
             // Check if any revocation call is within proximity of this refresh endpoint
             let has_nearby_revocation = revocation_lines.iter().any(|&rl| {
-                let diff = if rl > line_num {
-                    rl - line_num
-                } else {
-                    line_num - rl
-                };
+                let diff = rl.abs_diff(line_num);
                 diff <= PROXIMITY
             });
 

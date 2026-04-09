@@ -180,10 +180,10 @@ fn file_has_api_calls(ctx: &ScanContext, file: &PathBuf) -> bool {
 }
 
 /// Check whether the index has stub indicators for this file.
-fn file_has_stub_indicators(ctx: &ScanContext, file: &PathBuf) -> bool {
+fn file_has_stub_indicators(ctx: &ScanContext, file: &std::path::Path) -> bool {
     ctx.index
         .stub_indicators
-        .get(file.as_path())
+        .get(file)
         .map(|indicators| {
             indicators.value().iter().any(|s| {
                 matches!(

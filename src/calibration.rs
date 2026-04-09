@@ -249,7 +249,7 @@ pub fn handle_triage(
     let mut all_findings: Vec<_> = results
         .iter()
         .flat_map(|r| r.findings.iter())
-        .filter(|f| scanner_filter.map_or(true, |s| f.scanner == s))
+        .filter(|f| scanner_filter.is_none_or(|s| f.scanner == s))
         .collect();
 
     // Sort by uncertainty: closest to 0.5 confidence = most uncertain first

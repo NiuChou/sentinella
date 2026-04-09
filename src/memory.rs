@@ -402,7 +402,9 @@ pub fn save_memories(root: &Path, memories: &MemoryFile) -> anyhow::Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     let content = serde_yaml::to_string(memories)?;
-    std::fs::write(&path, content)?;
+    let tmp_path = path.with_extension("yaml.tmp");
+    std::fs::write(&tmp_path, &content)?;
+    std::fs::rename(&tmp_path, &path)?;
     Ok(())
 }
 

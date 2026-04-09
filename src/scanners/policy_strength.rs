@@ -98,11 +98,7 @@ impl Scanner for PolicyStrength {
             .iter()
             .filter(|p| !is_table_excepted(&p.table_name, &cfg.except_tables))
             .filter(|p| !is_marker_excepted(&p.policy_name, &cfg.except_comment_markers))
-            .filter(|p| {
-                p.with_check_expr
-                    .as_deref()
-                    .map_or(false, is_weak_with_check)
-            })
+            .filter(|p| p.with_check_expr.as_deref().is_some_and(is_weak_with_check))
             .map(|p| build_finding(&p.table_name, &p.policy_name))
             .collect();
 
@@ -239,10 +235,7 @@ mod tests {
     fn no_with_check_not_flagged() {
         let config = default_config();
         let store = Arc::new(IndexStore::new());
-        insert_policies(
-            &store,
-            vec![make_policy("orders", "orders_select", None)],
-        );
+        insert_policies(&store, vec![make_policy("orders", "orders_select", None)]);
 
         let ctx = ScanContext {
             config: &config,
@@ -316,10 +309,7 @@ mod tests {
         config.database_security.policy_strength.enabled = false;
 
         let store = Arc::new(IndexStore::new());
-        insert_policies(
-            &store,
-            vec![make_policy("orders", "p1", Some("true"))],
-        );
+        insert_policies(&store, vec![make_policy("orders", "p1", Some("true"))]);
 
         let ctx = ScanContext {
             config: &config,
@@ -395,10 +385,7 @@ mod tests {
     fn finding_has_suggestion_and_confidence() {
         let config = default_config();
         let store = Arc::new(IndexStore::new());
-        insert_policies(
-            &store,
-            vec![make_policy("orders", "p1", Some("true"))],
-        );
+        insert_policies(&store, vec![make_policy("orders", "p1", Some("true"))]);
 
         let ctx = ScanContext {
             config: &config,

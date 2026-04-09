@@ -164,7 +164,7 @@ fn query_notion_database(db_id: &str, api_key: &str) -> anyhow::Result<Vec<PlanI
         .header("Authorization", &format!("Bearer {api_key}"))
         .header("Notion-Version", "2022-06-28")
         .header("Content-Type", "application/json")
-        .send_json(&serde_json::json!({}))
+        .send_json(serde_json::json!({}))
         .map_err(|e| match e {
             ureq::Error::StatusCode(code) => {
                 anyhow::anyhow!("Notion database query returned HTTP {code}")
@@ -189,10 +189,7 @@ fn parse_notion_results(json: &serde_json::Value) -> anyhow::Result<Vec<PlanItem
         .as_array()
         .ok_or_else(|| anyhow::anyhow!("Notion response missing 'results' array"))?;
 
-    let items: Vec<PlanItem> = results
-        .iter()
-        .filter_map(|page| parse_single_page(page))
-        .collect();
+    let items: Vec<PlanItem> = results.iter().filter_map(parse_single_page).collect();
 
     Ok(items)
 }

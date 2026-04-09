@@ -25,7 +25,7 @@ fn is_auth_path(path: &str) -> bool {
 }
 
 /// Returns true if the file path contains auth-related segments.
-fn is_auth_file(file: &PathBuf) -> bool {
+fn is_auth_file(file: &std::path::Path) -> bool {
     let lower = file.to_string_lossy().to_lowercase();
     AUTH_FILE_KEYWORDS.iter().any(|kw| lower.contains(kw))
 }

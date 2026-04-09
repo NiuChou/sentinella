@@ -258,7 +258,7 @@ fn merge_packs_by_priority(tiers: Vec<Vec<LoadedPack>>) -> Vec<LoadedPack> {
 fn validate_loaded_packs(packs: Vec<LoadedPack>, verbose: bool) -> Vec<LoadedPack> {
     packs
         .into_iter()
-        .map(|lp| {
+        .inspect(|lp| {
             let issues = validate_rule_pack(&lp.pack);
             let has_errors = issues.iter().any(|i| i.level == IssueLevel::Error);
             let has_warnings = issues.iter().any(|i| i.level == IssueLevel::Warning);
@@ -276,7 +276,6 @@ fn validate_loaded_packs(packs: Vec<LoadedPack>, verbose: bool) -> Vec<LoadedPac
                     lp.pack.name, lp.source, report,
                 );
             }
-            lp
         })
         .collect()
 }

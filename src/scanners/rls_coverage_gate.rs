@@ -55,7 +55,7 @@ fn check_all_tables(tables: &[TableInfo], config: &RlsCoverageConfig) -> Vec<Fin
         .iter()
         .filter(|t| is_tenant_sensitive(t, &config.tenant_columns))
         .filter(|t| !is_exempt(t, &config.exemptions))
-        .flat_map(|t| check_single_table(t))
+        .flat_map(check_single_table)
         .collect()
 }
 
@@ -64,9 +64,7 @@ fn check_all_tables(tables: &[TableInfo], config: &RlsCoverageConfig) -> Vec<Fin
 fn is_tenant_sensitive(table: &TableInfo, tenant_columns: &[String]) -> bool {
     table.columns.iter().any(|col| {
         let lower = col.to_lowercase();
-        tenant_columns
-            .iter()
-            .any(|tc| tc.to_lowercase() == lower)
+        tenant_columns.iter().any(|tc| tc.to_lowercase() == lower)
     })
 }
 
@@ -85,7 +83,11 @@ fn is_exempt(table: &TableInfo, exemptions: &[String]) -> bool {
 /// Build a lowercase qualified name: `schema.table` or just `table`.
 fn qualified_name(table: &TableInfo) -> String {
     match &table.schema_name {
-        Some(schema) => format!("{}.{}", schema.to_lowercase(), table.table_name.to_lowercase()),
+        Some(schema) => format!(
+            "{}.{}",
+            schema.to_lowercase(),
+            table.table_name.to_lowercase()
+        ),
         None => table.table_name.to_lowercase(),
     }
 }
@@ -117,9 +119,7 @@ fn check_single_table(table: &TableInfo) -> Vec<Finding> {
                      (table owners bypass policies)"
                 ),
             )
-            .with_suggestion(format!(
-                "ALTER TABLE {label} FORCE ROW LEVEL SECURITY;"
-            ))
+            .with_suggestion(format!("ALTER TABLE {label} FORCE ROW LEVEL SECURITY;"))
             .with_confidence(Confidence::Confirmed),
         );
     }
@@ -285,10 +285,7 @@ mod tests {
     #[test]
     fn tenant_column_match_is_case_insensitive() {
         let table = make_table("profiles", &["ID", "User_ID", "name"], false, false);
-        assert!(is_tenant_sensitive(
-            &table,
-            &["user_id".to_string()]
-        ));
+        assert!(is_tenant_sensitive(&table, &["user_id".to_string()]));
     }
 
     #[test]

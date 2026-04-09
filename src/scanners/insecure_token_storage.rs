@@ -104,7 +104,7 @@ impl Scanner for InsecureTokenStorage {
             };
         }
 
-        let findings: Vec<Finding> = all_refs.iter().map(|r| to_finding(r)).collect();
+        let findings: Vec<Finding> = all_refs.iter().map(to_finding).collect();
 
         let critical_count = findings
             .iter()

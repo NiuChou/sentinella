@@ -1,9 +1,7 @@
 use std::path::PathBuf;
 
 use crate::indexer::types::{Language, TableInfo};
-use crate::scanners::types::{
-    Confidence, Finding, ScanContext, ScanResult, Scanner, Severity,
-};
+use crate::scanners::types::{Confidence, Finding, ScanContext, ScanResult, Scanner, Severity};
 
 const SCANNER_ID: &str = "S33";
 const SCANNER_NAME: &str = "AppendOnlyLifecycle";
@@ -35,7 +33,12 @@ impl Scanner for AppendOnlyLifecycle {
 
         let all_tables = ctx.index.all_db_tables();
         let sql_contents = collect_sql_file_contents(ctx);
-        let findings = evaluate_tables(&cfg.high_volume_tables, &cfg.lifecycle_markers, &all_tables, &sql_contents);
+        let findings = evaluate_tables(
+            &cfg.high_volume_tables,
+            &cfg.lifecycle_markers,
+            &all_tables,
+            &sql_contents,
+        );
         let score = compute_score(&findings);
         let summary = build_summary(&findings, score);
 
@@ -90,7 +93,9 @@ fn evaluate_tables(
 ) -> Vec<Finding> {
     high_volume_tables
         .iter()
-        .filter(|table_name| !has_lifecycle_strategy(table_name, all_tables, lifecycle_markers, sql_contents))
+        .filter(|table_name| {
+            !has_lifecycle_strategy(table_name, all_tables, lifecycle_markers, sql_contents)
+        })
         .map(|table_name| build_finding(table_name))
         .collect()
 }
@@ -102,7 +107,8 @@ fn has_lifecycle_strategy(
     lifecycle_markers: &[String],
     sql_contents: &[(PathBuf, String)],
 ) -> bool {
-    has_partition(table_name, all_tables) || has_marker_in_sql(table_name, lifecycle_markers, sql_contents)
+    has_partition(table_name, all_tables)
+        || has_marker_in_sql(table_name, lifecycle_markers, sql_contents)
 }
 
 /// Check if the table's `TableInfo` has partitioning enabled.
@@ -275,11 +281,8 @@ mod tests {
         config
             .database_security
             .append_only_lifecycle
-            .high_volume_tables = vec![
-            "events".into(),
-            "audit_logs".into(),
-            "notifications".into(),
-        ];
+            .high_volume_tables =
+            vec!["events".into(), "audit_logs".into(), "notifications".into()];
 
         let store = Arc::new(IndexStore::new());
         for name in &["events", "audit_logs", "notifications"] {
@@ -332,10 +335,7 @@ mod tests {
 
     #[test]
     fn test_summary_with_findings() {
-        let findings = vec![
-            build_finding("events"),
-            build_finding("audit_logs"),
-        ];
+        let findings = vec![build_finding("events"), build_finding("audit_logs")];
         let summary = build_summary(&findings, 84);
         assert!(summary.contains("2 table(s)"));
         assert!(summary.contains("events"));

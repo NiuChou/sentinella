@@ -234,9 +234,9 @@ fn find_cross_service_matches(
 }
 
 /// Index all function signatures by their name, paired with service info.
-fn index_by_function_name<'a>(
-    by_service: &'a HashMap<String, Vec<FunctionSignature>>,
-) -> HashMap<String, Vec<(&'a str, &'a FunctionSignature)>> {
+fn index_by_function_name(
+    by_service: &HashMap<String, Vec<FunctionSignature>>,
+) -> HashMap<String, Vec<(&str, &FunctionSignature)>> {
     let mut by_name: HashMap<String, Vec<(&str, &FunctionSignature)>> = HashMap::new();
 
     for (service, sigs) in by_service {

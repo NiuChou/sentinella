@@ -30,18 +30,13 @@ impl std::fmt::Display for PackSource {
 // ---------------------------------------------------------------------------
 
 /// Lifecycle state for a rule in a rule pack.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RuleLifecycle {
     Experimental,
+    #[default]
     Stable,
     Deprecated,
-}
-
-impl Default for RuleLifecycle {
-    fn default() -> Self {
-        Self::Stable
-    }
 }
 
 // ---------------------------------------------------------------------------

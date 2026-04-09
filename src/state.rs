@@ -6,20 +6,15 @@ use std::path::{Path, PathBuf};
 // FindingStatus — lifecycle of a finding across runs
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FindingStatus {
+    #[default]
     Open,
     Confirmed,
     FalsePositive,
     Accepted,
     Fixed,
-}
-
-impl Default for FindingStatus {
-    fn default() -> Self {
-        FindingStatus::Open
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -99,7 +94,9 @@ pub fn save_state(root: &Path, state: &ProjectState) -> anyhow::Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     let content = serde_json::to_string_pretty(state)?;
-    std::fs::write(&path, content)?;
+    let tmp_path = path.with_extension("json.tmp");
+    std::fs::write(&tmp_path, &content)?;
+    std::fs::rename(&tmp_path, &path)?;
     Ok(())
 }
 
@@ -134,28 +131,6 @@ pub(crate) fn chrono_free_date(epoch_secs: u64) -> String {
     let y = if m <= 2 { y + 1 } else { y };
 
     format!("{:04}-{:02}-{:02}", y, m, d)
-}
-
-// ---------------------------------------------------------------------------
-// Stable ID helper (temporary until Finding gets the method)
-// ---------------------------------------------------------------------------
-
-/// Compute a deterministic stable ID for a finding.
-///
-/// Format: `{scanner}-{hash:08x}` where hash is derived from scanner,
-/// relative file path, and message.
-fn compute_stable_id(finding: &crate::scanners::types::Finding, root: &Path) -> String {
-    use std::hash::{Hash, Hasher};
-
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    finding.scanner.hash(&mut hasher);
-    if let Some(ref file) = finding.file {
-        let rel = file.strip_prefix(root).unwrap_or(file);
-        rel.to_string_lossy().hash(&mut hasher);
-    }
-    finding.message.hash(&mut hasher);
-    let hash = hasher.finish();
-    format!("{}-{:08x}", finding.scanner, hash as u32)
 }
 
 // ---------------------------------------------------------------------------
@@ -255,7 +230,7 @@ pub fn record_from_finding(
     finding: &crate::scanners::types::Finding,
     root: &Path,
 ) -> (String, FindingRecord) {
-    let stable_id = compute_stable_id(finding, root);
+    let stable_id = finding.stable_id(root);
     let record = FindingRecord {
         status: FindingStatus::Open,
         scanner: finding.scanner.clone(),
@@ -412,8 +387,10 @@ mod tests {
 
     #[test]
     fn round_trip_json_serialization() {
-        let mut state = ProjectState::default();
-        state.last_scan = Some("2026-04-07".to_string());
+        let mut state = ProjectState {
+            last_scan: Some("2026-04-07".to_string()),
+            ..Default::default()
+        };
         state.findings.insert(
             "s01-deadbeef".to_string(),
             FindingRecord {
@@ -456,8 +433,10 @@ mod tests {
     #[test]
     fn save_and_load_round_trip() {
         let dir = tempfile::tempdir().unwrap();
-        let mut state = ProjectState::default();
-        state.last_scan = Some("2026-04-07".to_string());
+        let mut state = ProjectState {
+            last_scan: Some("2026-04-07".to_string()),
+            ..Default::default()
+        };
         state.findings.insert(
             "s01-cafe0000".to_string(),
             FindingRecord {
@@ -483,7 +462,7 @@ mod tests {
     }
 
     #[test]
-    fn compute_stable_id_deterministic() {
+    fn stable_id_deterministic() {
         let finding = crate::scanners::types::Finding::new(
             "s01",
             crate::scanners::types::Severity::Warning,
@@ -492,8 +471,8 @@ mod tests {
         .with_file("/project/src/main.rs");
 
         let root = Path::new("/project");
-        let id1 = compute_stable_id(&finding, root);
-        let id2 = compute_stable_id(&finding, root);
+        let id1 = finding.stable_id(root);
+        let id2 = finding.stable_id(root);
         assert_eq!(id1, id2);
         assert!(id1.starts_with("s01-"));
     }

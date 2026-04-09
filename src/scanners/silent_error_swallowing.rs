@@ -33,7 +33,7 @@ impl Scanner for SilentErrorSwallowing {
             };
         }
 
-        let findings: Vec<Finding> = all_refs.iter().map(|r| to_finding(r)).collect();
+        let findings: Vec<Finding> = all_refs.iter().map(to_finding).collect();
 
         let warning_count = findings
             .iter()

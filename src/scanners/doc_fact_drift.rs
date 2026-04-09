@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use super::types::{Confidence, Finding, ScanContext, ScanResult, Scanner, Severity};
 
@@ -177,11 +178,199 @@ pub struct Drift {
 }
 
 // ===========================================================================
+// Compiled regex accessors (compiled once via OnceLock)
+// ===========================================================================
+
+fn re_cargo_dep() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r#"^(\w[\w-]*)\s*=\s*"([^"]+)""#).expect("BUG: invalid regex literal")
+    })
+}
+
+fn re_cargo_dep_table() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r#"^(\w[\w-]*)\s*=\s*\{.*version\s*=\s*"([^"]+)".*\}"#)
+            .expect("BUG: invalid regex literal")
+    })
+}
+
+fn re_go_require() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r"^\s+(\S+)\s+(v\S+)").expect("BUG: invalid regex literal"))
+}
+
+fn re_requirements_txt() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r"^([A-Za-z0-9_-]+)\s*([=<>!~]+.+)?$")
+            .expect("BUG: invalid regex literal")
+    })
+}
+
+fn re_compose_port() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r#"^\s*-\s*"?(\d+):(\d+)"?"#).expect("BUG: invalid regex literal")
+    })
+}
+
+fn re_compose_image() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r"^\s*image:\s*(.+)$").expect("BUG: invalid regex literal"))
+}
+
+fn re_compose_svc() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r"^  (\w[\w_-]*):\s*$").expect("BUG: invalid regex literal")
+    })
+}
+
+fn re_k8s_replica() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r"^\s*replicas:\s*(\d+)").expect("BUG: invalid regex literal")
+    })
+}
+
+fn re_k8s_image() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r"^\s*-?\s*image:\s*(.+)$").expect("BUG: invalid regex literal")
+    })
+}
+
+fn re_k8s_port() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r"^\s*-?\s*(?:containerPort|port|targetPort):\s*(\d+)")
+            .expect("BUG: invalid regex literal")
+    })
+}
+
+fn re_k8s_cpu() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r#"^\s*cpu:\s*"?(\S+)"?"#).expect("BUG: invalid regex literal")
+    })
+}
+
+fn re_k8s_mem() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r#"^\s*memory:\s*"?(\S+)"?"#).expect("BUG: invalid regex literal")
+    })
+}
+
+fn re_config_port() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r"(?i)^\s*port:\s*(\d+)").expect("BUG: invalid regex literal")
+    })
+}
+
+fn re_config_svc() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r"(?i)^\s*(?:name|service[_-]?name):\s*(\S+)")
+            .expect("BUG: invalid regex literal")
+    })
+}
+
+fn re_doc_port() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r"(?i)\bport\s+(\d{2,5})\b").expect("BUG: invalid regex literal")
+    })
+}
+
+fn re_doc_port_colon() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r"(?i)\bport[:\s]+`?(\d{2,5})`?").expect("BUG: invalid regex literal")
+    })
+}
+
+fn re_doc_localhost() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r"localhost:(\d{2,5})").expect("BUG: invalid regex literal")
+    })
+}
+
+fn re_doc_version() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r"(?i)\bv(?:ersion)?\s*[:\s]?\s*`?(\d+\.\d+(?:\.\d+)?)`?")
+            .expect("BUG: invalid regex literal")
+    })
+}
+
+fn re_doc_go_ver() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r"(?i)\bgo\s+(\d+\.\d+(?:\.\d+)?)\b").expect("BUG: invalid regex literal")
+    })
+}
+
+fn re_doc_python_ver() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r"(?i)\bpython\s+(\d+\.\d+(?:\.\d+)?)\b")
+            .expect("BUG: invalid regex literal")
+    })
+}
+
+fn re_doc_node_ver() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r"(?i)\bnode(?:\.?js)?\s+(\d+(?:\.\d+)*)\b")
+            .expect("BUG: invalid regex literal")
+    })
+}
+
+fn re_doc_rust_edition() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r"(?i)\bedition\s+`?(\d{4})`?").expect("BUG: invalid regex literal")
+    })
+}
+
+fn re_doc_license() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r"(?i)\blicen[sc]e[d]?\s+(?:under\s+(?:the\s+)?)?`?(MIT|Apache[- ]2\.0|GPL[- ]?\d*|BSD[- ]?\d*|ISC|MPL[- ]?\d*|AGPL[- ]?\d*|LGPL[- ]?\d*)`?").expect("BUG: invalid regex literal"))
+}
+
+fn re_doc_dep() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r"(?i)\b(?:requires?|depends?\s+on|built\s+(?:with|on))\s+[`*]*(\w[\w-]*)[`*]*(?:\s+([v\d][\d.]+))?").expect("BUG: invalid regex literal"))
+}
+
+fn re_doc_module_count() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r"(?i)(\d+)\s+(?:modules?|services?|packages?)")
+            .expect("BUG: invalid regex literal")
+    })
+}
+
+fn re_doc_replicas() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r"(?i)(\d+)\s+replicas?").expect("BUG: invalid regex literal")
+    })
+}
+
+// ===========================================================================
 // 1. FactExtractor — pluggable multi-source fact extraction
 // ===========================================================================
 
+type FactExtractor = fn(&Path) -> Vec<Fact>;
+
 pub fn extract_all_facts(root: &Path) -> Vec<Fact> {
-    let extractors: Vec<(&str, fn(&Path) -> Vec<Fact>)> = vec![
+    let extractors: Vec<(&str, FactExtractor)> = vec![
         ("Cargo.toml", extract_cargo_toml),
         ("go.mod", extract_go_mod),
         ("go.work", extract_go_work),
@@ -256,9 +445,6 @@ fn extract_cargo_toml(path: &Path) -> Vec<Fact> {
     }
 
     // dependencies section
-    let dep_re = regex::Regex::new(r#"^(\w[\w-]*)\s*=\s*"([^"]+)""#).unwrap();
-    let dep_table_re =
-        regex::Regex::new(r#"^(\w[\w-]*)\s*=\s*\{.*version\s*=\s*"([^"]+)".*\}"#).unwrap();
     let mut in_deps = false;
     for line in content.lines() {
         let trimmed = line.trim();
@@ -271,14 +457,14 @@ fn extract_cargo_toml(path: &Path) -> Vec<Fact> {
             continue;
         }
         if in_deps {
-            if let Some(caps) = dep_re.captures(trimmed) {
+            if let Some(caps) = re_cargo_dep().captures(trimmed) {
                 facts.push(Fact {
                     category: FactCategory::Dependency,
                     key: caps[1].to_string(),
                     value: caps[2].to_string(),
                     source_file: file.clone(),
                 });
-            } else if let Some(caps) = dep_table_re.captures(trimmed) {
+            } else if let Some(caps) = re_cargo_dep_table().captures(trimmed) {
                 facts.push(Fact {
                     category: FactCategory::Dependency,
                     key: caps[1].to_string(),
@@ -330,7 +516,6 @@ fn extract_go_mod(path: &Path) -> Vec<Fact> {
     }
 
     // require block dependencies
-    let require_re = regex::Regex::new(r"^\s+(\S+)\s+(v\S+)").unwrap();
     let mut in_require = false;
     for line in content.lines() {
         let trimmed = line.trim();
@@ -343,7 +528,7 @@ fn extract_go_mod(path: &Path) -> Vec<Fact> {
             continue;
         }
         if in_require {
-            if let Some(caps) = require_re.captures(line) {
+            if let Some(caps) = re_go_require().captures(line) {
                 facts.push(Fact {
                     category: FactCategory::Dependency,
                     key: caps[1].to_string(),
@@ -531,13 +716,12 @@ fn extract_requirements_txt(path: &Path) -> Vec<Fact> {
     let mut facts = Vec::new();
     let file = path.to_path_buf();
 
-    let re = regex::Regex::new(r"^([A-Za-z0-9_-]+)\s*([=<>!~]+.+)?$").unwrap();
     for line in content.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('-') {
             continue;
         }
-        if let Some(caps) = re.captures(trimmed) {
+        if let Some(caps) = re_requirements_txt().captures(trimmed) {
             let name = caps[1].to_string();
             let ver = caps
                 .get(2)
@@ -571,7 +755,7 @@ fn extract_dockerfile(path: &Path) -> Vec<Fact> {
         let trimmed = line.trim();
         let upper = trimmed.to_uppercase();
         if upper.starts_with("FROM ") {
-            let image = trimmed[5..].trim().split_whitespace().next().unwrap_or("");
+            let image = trimmed[5..].split_whitespace().next().unwrap_or("");
             facts.push(Fact {
                 category: FactCategory::DockerBaseImage,
                 key: "base-image".into(),
@@ -608,16 +792,13 @@ fn extract_docker_compose(path: &Path) -> Vec<Fact> {
     let file = path.to_path_buf();
 
     // Lightweight line-based parsing (avoids full YAML dep for a scanner)
-    let port_re = regex::Regex::new(r#"^\s*-\s*"?(\d+):(\d+)"?"#).unwrap();
-    let image_re = regex::Regex::new(r"^\s*image:\s*(.+)$").unwrap();
-    let svc_re = regex::Regex::new(r"^  (\w[\w_-]*):\s*$").unwrap();
     let mut current_service = String::new();
 
     for line in content.lines() {
-        if let Some(caps) = svc_re.captures(line) {
+        if let Some(caps) = re_compose_svc().captures(line) {
             current_service = caps[1].to_string();
         }
-        if let Some(caps) = port_re.captures(line) {
+        if let Some(caps) = re_compose_port().captures(line) {
             let host_port = &caps[1];
             facts.push(Fact {
                 category: FactCategory::Port,
@@ -626,7 +807,7 @@ fn extract_docker_compose(path: &Path) -> Vec<Fact> {
                 source_file: file.clone(),
             });
         }
-        if let Some(caps) = image_re.captures(line) {
+        if let Some(caps) = re_compose_image().captures(line) {
             let image = caps[1].trim().trim_matches('"').trim_matches('\'');
             facts.push(Fact {
                 category: FactCategory::DockerBaseImage,
@@ -674,15 +855,8 @@ fn extract_k8s_yaml(path: &Path) -> Vec<Fact> {
     let mut facts = Vec::new();
     let file = path.to_path_buf();
 
-    let replica_re = regex::Regex::new(r"^\s*replicas:\s*(\d+)").unwrap();
-    let image_re = regex::Regex::new(r"^\s*-?\s*image:\s*(.+)$").unwrap();
-    let port_re =
-        regex::Regex::new(r"^\s*-?\s*(?:containerPort|port|targetPort):\s*(\d+)").unwrap();
-    let cpu_re = regex::Regex::new(r#"^\s*cpu:\s*"?(\S+)"?"#).unwrap();
-    let mem_re = regex::Regex::new(r#"^\s*memory:\s*"?(\S+)"?"#).unwrap();
-
     for line in content.lines() {
-        if let Some(caps) = replica_re.captures(line) {
+        if let Some(caps) = re_k8s_replica().captures(line) {
             facts.push(Fact {
                 category: FactCategory::K8sReplica,
                 key: "replicas".into(),
@@ -690,7 +864,7 @@ fn extract_k8s_yaml(path: &Path) -> Vec<Fact> {
                 source_file: file.clone(),
             });
         }
-        if let Some(caps) = image_re.captures(line) {
+        if let Some(caps) = re_k8s_image().captures(line) {
             let image = caps[1].trim().trim_matches('"').trim_matches('\'');
             if image.contains('/') || image.contains(':') {
                 facts.push(Fact {
@@ -701,7 +875,7 @@ fn extract_k8s_yaml(path: &Path) -> Vec<Fact> {
                 });
             }
         }
-        if let Some(caps) = port_re.captures(line) {
+        if let Some(caps) = re_k8s_port().captures(line) {
             facts.push(Fact {
                 category: FactCategory::Port,
                 key: format!("k8s-port:{}", &caps[1]),
@@ -709,7 +883,7 @@ fn extract_k8s_yaml(path: &Path) -> Vec<Fact> {
                 source_file: file.clone(),
             });
         }
-        if let Some(caps) = cpu_re.captures(line) {
+        if let Some(caps) = re_k8s_cpu().captures(line) {
             facts.push(Fact {
                 category: FactCategory::K8sResourceLimit,
                 key: "cpu".into(),
@@ -717,7 +891,7 @@ fn extract_k8s_yaml(path: &Path) -> Vec<Fact> {
                 source_file: file.clone(),
             });
         }
-        if let Some(caps) = mem_re.captures(line) {
+        if let Some(caps) = re_k8s_mem().captures(line) {
             facts.push(Fact {
                 category: FactCategory::K8sResourceLimit,
                 key: "memory".into(),
@@ -763,11 +937,8 @@ fn extract_generic_config(path: &Path) -> Vec<Fact> {
     let mut facts = Vec::new();
     let file = path.to_path_buf();
 
-    let port_re = regex::Regex::new(r"(?i)^\s*port:\s*(\d+)").unwrap();
-    let svc_re = regex::Regex::new(r"(?i)^\s*(?:name|service[_-]?name):\s*(\S+)").unwrap();
-
     for line in content.lines() {
-        if let Some(caps) = port_re.captures(line) {
+        if let Some(caps) = re_config_port().captures(line) {
             facts.push(Fact {
                 category: FactCategory::Port,
                 key: "config-port".into(),
@@ -775,7 +946,7 @@ fn extract_generic_config(path: &Path) -> Vec<Fact> {
                 source_file: file.clone(),
             });
         }
-        if let Some(caps) = svc_re.captures(line) {
+        if let Some(caps) = re_config_svc().captures(line) {
             let val = caps[1].trim().trim_matches('"').trim_matches('\'');
             facts.push(Fact {
                 category: FactCategory::ServiceName,
@@ -814,30 +985,11 @@ fn discover_doc_files(root: &Path) -> Vec<PathBuf> {
 pub fn parse_doc_claims(content: &str, file: &Path) -> Vec<DocClaim> {
     let mut claims = Vec::new();
 
-    let port_re = regex::Regex::new(r"(?i)\bport\s+(\d{2,5})\b").unwrap();
-    let port_colon_re = regex::Regex::new(r"(?i)\bport[:\s]+`?(\d{2,5})`?").unwrap();
-    let localhost_re = regex::Regex::new(r"localhost:(\d{2,5})").unwrap();
-    let version_re =
-        regex::Regex::new(r"(?i)\bv(?:ersion)?\s*[:\s]?\s*`?(\d+\.\d+(?:\.\d+)?)`?").unwrap();
-    let go_ver_re = regex::Regex::new(r"(?i)\bgo\s+(\d+\.\d+(?:\.\d+)?)\b").unwrap();
-    let python_ver_re = regex::Regex::new(r"(?i)\bpython\s+(\d+\.\d+(?:\.\d+)?)\b").unwrap();
-    let node_ver_re = regex::Regex::new(r"(?i)\bnode(?:\.?js)?\s+(\d+(?:\.\d+)*)\b").unwrap();
-    let rust_edition_re = regex::Regex::new(r"(?i)\bedition\s+`?(\d{4})`?").unwrap();
-    let license_re =
-        regex::Regex::new(r"(?i)\blicen[sc]e[d]?\s+(?:under\s+(?:the\s+)?)?`?(MIT|Apache[- ]2\.0|GPL[- ]?\d*|BSD[- ]?\d*|ISC|MPL[- ]?\d*|AGPL[- ]?\d*|LGPL[- ]?\d*)`?")
-            .unwrap();
-    let dep_re =
-        regex::Regex::new(r"(?i)\b(?:requires?|depends?\s+on|built\s+(?:with|on))\s+[`*]*(\w[\w-]*)[`*]*(?:\s+([v\d][\d.]+))?")
-            .unwrap();
-    let module_count_re =
-        regex::Regex::new(r"(?i)(\d+)\s+(?:modules?|services?|packages?)").unwrap();
-    let replicas_re = regex::Regex::new(r"(?i)(\d+)\s+replicas?").unwrap();
-
     for (line_idx, line) in content.lines().enumerate() {
         let line_num = line_idx + 1;
 
         // Port claims
-        for caps in port_re.captures_iter(line) {
+        for caps in re_doc_port().captures_iter(line) {
             claims.push(DocClaim {
                 category: FactCategory::Port,
                 key: "port".into(),
@@ -847,7 +999,7 @@ pub fn parse_doc_claims(content: &str, file: &Path) -> Vec<DocClaim> {
                 raw_text: line.to_string(),
             });
         }
-        for caps in port_colon_re.captures_iter(line) {
+        for caps in re_doc_port_colon().captures_iter(line) {
             if !claims.iter().any(|c| {
                 c.line == line_num && c.category == FactCategory::Port && c.claimed_value == caps[1]
             }) {
@@ -861,7 +1013,7 @@ pub fn parse_doc_claims(content: &str, file: &Path) -> Vec<DocClaim> {
                 });
             }
         }
-        for caps in localhost_re.captures_iter(line) {
+        for caps in re_doc_localhost().captures_iter(line) {
             if !claims.iter().any(|c| {
                 c.line == line_num && c.category == FactCategory::Port && c.claimed_value == caps[1]
             }) {
@@ -877,7 +1029,7 @@ pub fn parse_doc_claims(content: &str, file: &Path) -> Vec<DocClaim> {
         }
 
         // Version claims
-        for caps in version_re.captures_iter(line) {
+        for caps in re_doc_version().captures_iter(line) {
             claims.push(DocClaim {
                 category: FactCategory::Version,
                 key: "version".into(),
@@ -889,7 +1041,7 @@ pub fn parse_doc_claims(content: &str, file: &Path) -> Vec<DocClaim> {
         }
 
         // Go version
-        for caps in go_ver_re.captures_iter(line) {
+        for caps in re_doc_go_ver().captures_iter(line) {
             claims.push(DocClaim {
                 category: FactCategory::Version,
                 key: "go".into(),
@@ -901,7 +1053,7 @@ pub fn parse_doc_claims(content: &str, file: &Path) -> Vec<DocClaim> {
         }
 
         // Python version
-        for caps in python_ver_re.captures_iter(line) {
+        for caps in re_doc_python_ver().captures_iter(line) {
             claims.push(DocClaim {
                 category: FactCategory::PythonVersion,
                 key: "python".into(),
@@ -913,7 +1065,7 @@ pub fn parse_doc_claims(content: &str, file: &Path) -> Vec<DocClaim> {
         }
 
         // Node version
-        for caps in node_ver_re.captures_iter(line) {
+        for caps in re_doc_node_ver().captures_iter(line) {
             claims.push(DocClaim {
                 category: FactCategory::NodeVersion,
                 key: "node".into(),
@@ -925,7 +1077,7 @@ pub fn parse_doc_claims(content: &str, file: &Path) -> Vec<DocClaim> {
         }
 
         // Rust edition
-        for caps in rust_edition_re.captures_iter(line) {
+        for caps in re_doc_rust_edition().captures_iter(line) {
             claims.push(DocClaim {
                 category: FactCategory::RustEdition,
                 key: "rust-edition".into(),
@@ -937,7 +1089,7 @@ pub fn parse_doc_claims(content: &str, file: &Path) -> Vec<DocClaim> {
         }
 
         // License
-        for caps in license_re.captures_iter(line) {
+        for caps in re_doc_license().captures_iter(line) {
             claims.push(DocClaim {
                 category: FactCategory::License,
                 key: "license".into(),
@@ -949,7 +1101,7 @@ pub fn parse_doc_claims(content: &str, file: &Path) -> Vec<DocClaim> {
         }
 
         // Dependency mentions
-        for caps in dep_re.captures_iter(line) {
+        for caps in re_doc_dep().captures_iter(line) {
             let name = caps[1].to_string();
             let ver = caps
                 .get(2)
@@ -966,7 +1118,7 @@ pub fn parse_doc_claims(content: &str, file: &Path) -> Vec<DocClaim> {
         }
 
         // Module/service count
-        for caps in module_count_re.captures_iter(line) {
+        for caps in re_doc_module_count().captures_iter(line) {
             claims.push(DocClaim {
                 category: FactCategory::GoModule,
                 key: "workspace-module-count".into(),
@@ -978,7 +1130,7 @@ pub fn parse_doc_claims(content: &str, file: &Path) -> Vec<DocClaim> {
         }
 
         // Replica count
-        for caps in replicas_re.captures_iter(line) {
+        for caps in re_doc_replicas().captures_iter(line) {
             claims.push(DocClaim {
                 category: FactCategory::K8sReplica,
                 key: "replicas".into(),
@@ -1165,7 +1317,6 @@ fn is_yaml_file(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
 
     // -----------------------------------------------------------------------
     // FactExtractor tests

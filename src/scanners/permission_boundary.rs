@@ -20,10 +20,7 @@ pub struct PermissionBoundary;
 ///
 /// A violation occurs when a denied role holds any privilege not in the
 /// `allow` list for that table.
-fn check_restricted_table(
-    grant: &GrantDetail,
-    rule: &RestrictedTableConfig,
-) -> Option<Finding> {
+fn check_restricted_table(grant: &GrantDetail, rule: &RestrictedTableConfig) -> Option<Finding> {
     let role_denied = rule
         .deny_roles
         .iter()
@@ -36,12 +33,7 @@ fn check_restricted_table(
     let disallowed: Vec<&String> = grant
         .privileges
         .iter()
-        .filter(|priv_name| {
-            !rule
-                .allow
-                .iter()
-                .any(|a| a.eq_ignore_ascii_case(priv_name))
-        })
+        .filter(|priv_name| !rule.allow.iter().any(|a| a.eq_ignore_ascii_case(priv_name)))
         .collect();
 
     if disallowed.is_empty() {
@@ -105,9 +97,7 @@ fn find_blanket_grant_findings(grants: &[GrantDetail]) -> Vec<Finding> {
                 g.table_name,
             );
             Finding::new(SCANNER_ID, Severity::Critical, message)
-                .with_suggestion(
-                    "Replace blanket grants with explicit per-table grants",
-                )
+                .with_suggestion("Replace blanket grants with explicit per-table grants")
                 .with_confidence(Confidence::Confirmed)
         })
         .collect()
@@ -134,10 +124,7 @@ fn compile_patterns(raw: &[String]) -> Vec<Regex> {
 }
 
 /// Test each grant against user-configured regex patterns.
-fn find_pattern_matches(
-    grants: &[GrantDetail],
-    patterns: &[Regex],
-) -> Vec<Finding> {
+fn find_pattern_matches(grants: &[GrantDetail], patterns: &[Regex]) -> Vec<Finding> {
     if patterns.is_empty() {
         return Vec::new();
     }
@@ -248,8 +235,7 @@ impl Scanner for PermissionBoundary {
             };
         }
 
-        let restricted_findings =
-            find_restricted_table_violations(&grants, &cfg.restricted_tables);
+        let restricted_findings = find_restricted_table_violations(&grants, &cfg.restricted_tables);
         let blanket_findings = find_blanket_grant_findings(&grants);
         let patterns = compile_patterns(&cfg.flag_patterns);
         let pattern_findings = find_pattern_matches(&grants, &patterns);
@@ -454,10 +440,7 @@ mod tests {
     #[test]
     fn flag_pattern_match_is_warning() {
         let mut config = default_config();
-        config
-            .database_security
-            .permission_boundaries
-            .flag_patterns = vec!["anon".to_string()];
+        config.database_security.permission_boundaries.flag_patterns = vec!["anon".to_string()];
 
         let store = IndexStore::new();
         store.grant_details.insert(
@@ -480,10 +463,7 @@ mod tests {
     #[test]
     fn invalid_pattern_is_skipped() {
         let mut config = default_config();
-        config
-            .database_security
-            .permission_boundaries
-            .flag_patterns = vec!["[invalid".to_string()];
+        config.database_security.permission_boundaries.flag_patterns = vec!["[invalid".to_string()];
 
         let store = IndexStore::new();
         store.grant_details.insert(
@@ -539,10 +519,7 @@ mod tests {
                 allow: vec![],
                 reason: None,
             });
-        config
-            .database_security
-            .permission_boundaries
-            .flag_patterns = vec!["anon".to_string()];
+        config.database_security.permission_boundaries.flag_patterns = vec!["anon".to_string()];
 
         let store = IndexStore::new();
         // Restricted table violation (Critical, -20)

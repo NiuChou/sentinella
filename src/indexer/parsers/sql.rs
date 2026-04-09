@@ -346,8 +346,17 @@ fn parse_tables_regex(source: &str, store: &IndexStore) {
 
 /// SQL keywords that appear in column position but are not type names.
 const NON_TYPE_KEYWORDS: &[&str] = &[
-    "CONSTRAINT", "PRIMARY", "UNIQUE", "CHECK", "DEFAULT", "NOT", "REFERENCES",
-    "FOREIGN", "INDEX", "EXCLUDE", "PARTITION",
+    "CONSTRAINT",
+    "PRIMARY",
+    "UNIQUE",
+    "CHECK",
+    "DEFAULT",
+    "NOT",
+    "REFERENCES",
+    "FOREIGN",
+    "INDEX",
+    "EXCLUDE",
+    "PARTITION",
 ];
 
 /// Extract column names from the CREATE TABLE body text via regex.
@@ -369,7 +378,10 @@ fn extract_columns_regex(source: &str, offset: usize) -> Vec<String> {
     body.lines()
         .filter_map(|line| col_re.captures(line))
         .filter(|cap| {
-            let type_name = cap.get(2).map(|m| m.as_str().to_uppercase()).unwrap_or_default();
+            let type_name = cap
+                .get(2)
+                .map(|m| m.as_str().to_uppercase())
+                .unwrap_or_default();
             !NON_TYPE_KEYWORDS.contains(&type_name.as_str())
         })
         .filter_map(|cap| cap.get(1))
@@ -534,8 +546,10 @@ fn parse_blanket_grants_regex(source: &str, store: &IndexStore) {
     // Also detect ALTER DEFAULT PRIVILEGES ... GRANT
     static DEF_RE: OnceLock<Regex> = OnceLock::new();
     let def_re = DEF_RE.get_or_init(|| {
-        Regex::new(r"(?i)ALTER\s+DEFAULT\s+PRIVILEGES.*?GRANT\s+([\w\s,]+)\s+ON\s+TABLES\s+TO\s+(\w+)")
-            .unwrap()
+        Regex::new(
+            r"(?i)ALTER\s+DEFAULT\s+PRIVILEGES.*?GRANT\s+([\w\s,]+)\s+ON\s+TABLES\s+TO\s+(\w+)",
+        )
+        .unwrap()
     });
 
     for cap in def_re.captures_iter(source) {
@@ -621,11 +635,7 @@ fn extract_soft_delete_from_columns(
         let soft_delete_type = if col_name == "deleted_at" {
             Some(SoftDeleteType::Timestamp)
         } else if col_name == "is_deleted" {
-            if col_type_str.contains("BOOL") {
-                Some(SoftDeleteType::Boolean)
-            } else {
-                Some(SoftDeleteType::Boolean)
-            }
+            Some(SoftDeleteType::Boolean)
         } else if col_name == "status" {
             if col_type_str.contains("VARCHAR") || col_type_str.contains("TEXT") {
                 Some(SoftDeleteType::Status)

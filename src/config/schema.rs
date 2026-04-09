@@ -151,18 +151,13 @@ pub struct Config {
 // ProjectType
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProjectType {
+    #[default]
     Fullstack,
     BackendOnly,
     Monorepo,
-}
-
-impl Default for ProjectType {
-    fn default() -> Self {
-        Self::Fullstack
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -474,32 +469,22 @@ impl Default for DataIsolationConfig {
 // OutputConfig
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum OutputFormat {
+    #[default]
     Terminal,
     Json,
     Markdown,
     Notion,
 }
 
-impl Default for OutputFormat {
-    fn default() -> Self {
-        Self::Terminal
-    }
-}
-
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum SeverityLevel {
+    #[default]
     Warning,
     Error,
-}
-
-impl Default for SeverityLevel {
-    fn default() -> Self {
-        Self::Warning
-    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -526,21 +511,16 @@ impl Default for OutputConfig {
 // DispatchConfig
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum DispatchTarget {
+    #[default]
     Stdout,
     Notion,
     Github,
 }
 
-impl Default for DispatchTarget {
-    fn default() -> Self {
-        Self::Stdout
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct DispatchConfig {
     #[serde(default)]
     pub target: DispatchTarget,
@@ -550,17 +530,6 @@ pub struct DispatchConfig {
     pub github_repo: Option<String>,
     #[serde(default)]
     pub auto_assign: bool,
-}
-
-impl Default for DispatchConfig {
-    fn default() -> Self {
-        Self {
-            target: DispatchTarget::default(),
-            notion_database_id: None,
-            github_repo: None,
-            auto_assign: false,
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------

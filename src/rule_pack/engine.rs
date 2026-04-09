@@ -18,40 +18,84 @@ pub fn execute_protection_rules(
             continue;
         }
 
-        for rule in &pack.protection_evidence {
-            execute_protection_rule(rule, &pack.name, file_path, source, evidence_store);
+        // Compile regexes once per pack, before iterating over source lines.
+        let compiled_protection: Vec<(Option<Regex>, &ProtectionEvidenceRule)> = pack
+            .protection_evidence
+            .iter()
+            .map(|rule| {
+                let re = if rule.rule_type == RuleType::Regex {
+                    rule.pattern.as_ref().and_then(|p| {
+                        Regex::new(p)
+                            .map_err(|e| {
+                                eprintln!("[WARN] Invalid regex in rule '{}': {}", rule.name, e)
+                            })
+                            .ok()
+                    })
+                } else {
+                    None
+                };
+                (re, rule)
+            })
+            .collect();
+
+        let compiled_data_source: Vec<(Option<Regex>, &DataSourceRule)> = pack
+            .data_source_evidence
+            .iter()
+            .map(|rule| {
+                let re = if rule.rule_type == RuleType::Regex {
+                    rule.pattern.as_ref().and_then(|p| {
+                        Regex::new(p)
+                            .map_err(|e| {
+                                eprintln!(
+                                    "[WARN] Invalid regex in data source rule '{}': {}",
+                                    rule.name, e
+                                )
+                            })
+                            .ok()
+                    })
+                } else {
+                    None
+                };
+                (re, rule)
+            })
+            .collect();
+
+        for (re, rule) in &compiled_protection {
+            if let Some(re) = re {
+                execute_protection_rule_compiled(
+                    re,
+                    rule,
+                    &pack.name,
+                    file_path,
+                    source,
+                    evidence_store,
+                );
+            }
         }
 
-        for rule in &pack.data_source_evidence {
-            execute_data_source_rule(rule, &pack.name, file_path, source, evidence_store);
+        for (re, rule) in &compiled_data_source {
+            if let Some(re) = re {
+                execute_data_source_rule_compiled(
+                    re,
+                    rule,
+                    &pack.name,
+                    file_path,
+                    source,
+                    evidence_store,
+                );
+            }
         }
     }
 }
 
-fn execute_protection_rule(
+fn execute_protection_rule_compiled(
+    re: &Regex,
     rule: &ProtectionEvidenceRule,
     pack_name: &str,
     file_path: &Path,
     source: &str,
     evidence_store: &EvidenceStore,
 ) {
-    if rule.rule_type != RuleType::Regex {
-        return; // Tree-sitter rules handled by existing parsers
-    }
-
-    let pattern = match rule.pattern {
-        Some(ref p) => p,
-        None => return,
-    };
-
-    let re = match Regex::new(pattern) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("[WARN] Invalid regex in rule '{}': {}", rule.name, e);
-            return;
-        }
-    };
-
     let total_lines = source.lines().count();
 
     for (line_idx, line) in source.lines().enumerate() {
@@ -77,33 +121,14 @@ fn execute_protection_rule(
     }
 }
 
-fn execute_data_source_rule(
+fn execute_data_source_rule_compiled(
+    re: &Regex,
     rule: &DataSourceRule,
     pack_name: &str,
     file_path: &Path,
     source: &str,
     evidence_store: &EvidenceStore,
 ) {
-    if rule.rule_type != RuleType::Regex {
-        return;
-    }
-
-    let pattern = match rule.pattern {
-        Some(ref p) => p,
-        None => return,
-    };
-
-    let re = match Regex::new(pattern) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!(
-                "[WARN] Invalid regex in data source rule '{}': {}",
-                rule.name, e
-            );
-            return;
-        }
-    };
-
     for (line_idx, line) in source.lines().enumerate() {
         if re.is_match(line) {
             evidence_store.add(Evidence {

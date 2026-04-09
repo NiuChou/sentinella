@@ -10,19 +10,10 @@ use crate::rule_pack::schema::{RuleLifecycle, RulePack};
 ///
 /// Stable rules are always included. Experimental and deprecated rules are
 /// opt-in via their respective flags.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct LifecyclePolicy {
     pub include_experimental: bool,
     pub include_deprecated: bool,
-}
-
-impl Default for LifecyclePolicy {
-    fn default() -> Self {
-        Self {
-            include_experimental: false,
-            include_deprecated: false,
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------

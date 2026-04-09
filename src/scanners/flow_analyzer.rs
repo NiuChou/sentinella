@@ -1,5 +1,5 @@
 use std::collections::{HashSet, VecDeque};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::config::FlowConfig;
 use crate::indexer::store::{normalize_api_path, plural_variants};
@@ -312,12 +312,12 @@ fn collect_page_files(ctx: &ScanContext) -> Vec<PathBuf> {
 }
 
 /// BFS through the import graph from `start` to see if any file in `targets` is reachable.
-fn bfs_reaches_any(ctx: &ScanContext, start: &PathBuf, targets: &HashSet<PathBuf>) -> bool {
+fn bfs_reaches_any(ctx: &ScanContext, start: &Path, targets: &HashSet<PathBuf>) -> bool {
     let mut visited: HashSet<PathBuf> = HashSet::new();
     let mut queue: VecDeque<PathBuf> = VecDeque::new();
 
-    queue.push_back(start.clone());
-    visited.insert(start.clone());
+    queue.push_back(start.to_path_buf());
+    visited.insert(start.to_path_buf());
 
     while let Some(current) = queue.pop_front() {
         if targets.contains(&current) {

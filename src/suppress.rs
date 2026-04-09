@@ -59,7 +59,7 @@ impl SuppressionSet {
 
             if let Some(directive) = extract_directive(line) {
                 match directive.kind {
-                    DirectiveKind::IgnoreNextLine => {
+                    DirectiveKind::NextLine => {
                         let target_line = line_number + 1;
                         self.line_suppressions
                             .entry(canonical.clone())
@@ -68,7 +68,7 @@ impl SuppressionSet {
                             .or_default()
                             .insert(directive.scanner_id);
                     }
-                    DirectiveKind::IgnoreCurrentLine => {
+                    DirectiveKind::CurrentLine => {
                         self.line_suppressions
                             .entry(canonical.clone())
                             .or_default()
@@ -76,7 +76,7 @@ impl SuppressionSet {
                             .or_default()
                             .insert(directive.scanner_id);
                     }
-                    DirectiveKind::IgnoreFile => {
+                    DirectiveKind::File => {
                         self.file_suppressions
                             .entry(canonical.clone())
                             .or_default()
@@ -113,9 +113,9 @@ impl SuppressionSet {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum DirectiveKind {
-    IgnoreNextLine,
-    IgnoreCurrentLine,
-    IgnoreFile,
+    NextLine,
+    CurrentLine,
+    File,
 }
 
 #[derive(Debug, Clone)]
@@ -136,7 +136,7 @@ fn extract_directive(line: &str) -> Option<Directive> {
             return None;
         }
         Some(Directive {
-            kind: DirectiveKind::IgnoreNextLine,
+            kind: DirectiveKind::NextLine,
             scanner_id,
         })
     } else if let Some(rest) = trimmed.strip_prefix("sentinella-ignore-file") {
@@ -145,7 +145,7 @@ fn extract_directive(line: &str) -> Option<Directive> {
             return None;
         }
         Some(Directive {
-            kind: DirectiveKind::IgnoreFile,
+            kind: DirectiveKind::File,
             scanner_id,
         })
     } else if let Some(rest) = trimmed.strip_prefix("sentinella-ignore") {
@@ -154,7 +154,7 @@ fn extract_directive(line: &str) -> Option<Directive> {
             return None;
         }
         Some(Directive {
-            kind: DirectiveKind::IgnoreCurrentLine,
+            kind: DirectiveKind::CurrentLine,
             scanner_id,
         })
     } else {
@@ -279,7 +279,10 @@ pub fn save_dismissals(root: &Path, file: &DismissFile) -> anyhow::Result<()> {
     let dir = root.join(".sentinella");
     std::fs::create_dir_all(&dir)?;
     let contents = serde_yaml::to_string(file)?;
-    std::fs::write(dir.join("ignore.yaml"), contents)?;
+    let path = dir.join("ignore.yaml");
+    let tmp_path = path.with_extension("yaml.tmp");
+    std::fs::write(&tmp_path, contents)?;
+    std::fs::rename(&tmp_path, &path)?;
     Ok(())
 }
 
@@ -288,7 +291,7 @@ pub fn is_dismissed(dismissals: &DismissFile, stable_id: &str) -> bool {
     dismissals
         .dismissed
         .iter()
-        .any(|record| record.pattern.as_ref().map_or(false, |p| p == stable_id))
+        .any(|record| record.pattern.as_ref().is_some_and(|p| p == stable_id))
 }
 
 /// Return today's date as an ISO-8601 string (YYYY-MM-DD) without external deps.
@@ -404,23 +407,33 @@ fn make_relative(file: &Path, root: &Path) -> String {
 
 /// Compute a stable finding identifier from scanner + file + message.
 ///
-/// Format: `{scanner}-{8-char hex}` where the hex is derived from a simple hash
-/// of the file path and message.  This gives deterministic IDs without needing
-/// a cryptographic hash crate.
+/// Uses FNV-1a over `"{scanner}:{file}:{normalized_message}"` — identical
+/// algorithm to `Finding::stable_id`.  The `file` path should already be
+/// relative to the project root.
 pub fn compute_stable_id(scanner: &str, file: Option<&Path>, message: &str) -> String {
     let file_str = file.map_or_else(String::new, |p| p.to_string_lossy().to_string());
-    let hash = simple_hash(&format!("{file_str}:{message}"));
+    let normalized = normalize_message_str(message);
+    let key = format!("{scanner}:{file_str}:{normalized}");
+    let hash = crate::scanners::types::fnv1a_hash(&key);
     format!("{scanner}-{hash:08x}")
 }
 
-/// FNV-1a 32-bit hash for deterministic, non-cryptographic hashing.
-fn simple_hash(input: &str) -> u32 {
-    let mut hash: u32 = 2_166_136_261;
-    for byte in input.bytes() {
-        hash ^= byte as u32;
-        hash = hash.wrapping_mul(16_777_619);
-    }
-    hash
+/// Normalize a message string for stable ID generation.
+///
+/// Replaces volatile tokens (HTTP method+path, line numbers) so that
+/// minor code movement doesn't invalidate a stored ID.
+fn normalize_message_str(message: &str) -> String {
+    use std::sync::OnceLock;
+    static RE_METHOD: OnceLock<regex::Regex> = OnceLock::new();
+    static RE_LINE: OnceLock<regex::Regex> = OnceLock::new();
+
+    let re_method = RE_METHOD.get_or_init(|| {
+        regex::Regex::new(r"(GET|POST|PUT|PATCH|DELETE)\s+\S+").expect("valid regex")
+    });
+    let normalized = re_method.replace_all(message, "METHOD PATH");
+
+    let re_line = RE_LINE.get_or_init(|| regex::Regex::new(r"line \d+").expect("valid regex"));
+    re_line.replace_all(&normalized, "line N").into_owned()
 }
 
 fn recalculate_score(base_score: u8, original_count: usize, filtered_count: usize) -> u8 {
@@ -434,14 +447,16 @@ fn recalculate_score(base_score: u8, original_count: usize, filtered_count: usiz
 
 /// Simple glob matching supporting `**` (any path) and `*` (single segment).
 fn glob_match(pattern: &str, path: &str) -> bool {
-    let regex_pattern = pattern
-        .replace('.', r"\.")
-        .replace("**", "DOUBLESTAR")
-        .replace('*', "[^/]*")
-        .replace("DOUBLESTAR", ".*");
-
-    regex::Regex::new(&format!("^{regex_pattern}$"))
-        .map(|re| re.is_match(path))
+    globset::GlobBuilder::new(pattern)
+        .literal_separator(true)
+        .build()
+        .ok()
+        .and_then(|g| {
+            let mut builder = globset::GlobSetBuilder::new();
+            builder.add(g);
+            builder.build().ok()
+        })
+        .map(|gs| gs.is_match(path))
         .unwrap_or(false)
 }
 
@@ -459,28 +474,28 @@ mod tests {
     #[test]
     fn parse_double_slash_ignore_next_line() {
         let d = extract_directive("  // sentinella-ignore-next-line S7").unwrap();
-        assert_eq!(d.kind, DirectiveKind::IgnoreNextLine);
+        assert_eq!(d.kind, DirectiveKind::NextLine);
         assert_eq!(d.scanner_id, "S7");
     }
 
     #[test]
     fn parse_hash_ignore_next_line() {
         let d = extract_directive("# sentinella-ignore-next-line S7").unwrap();
-        assert_eq!(d.kind, DirectiveKind::IgnoreNextLine);
+        assert_eq!(d.kind, DirectiveKind::NextLine);
         assert_eq!(d.scanner_id, "S7");
     }
 
     #[test]
     fn parse_block_comment_ignore_file() {
         let d = extract_directive("/* sentinella-ignore-file S1 */").unwrap();
-        assert_eq!(d.kind, DirectiveKind::IgnoreFile);
+        assert_eq!(d.kind, DirectiveKind::File);
         assert_eq!(d.scanner_id, "S1");
     }
 
     #[test]
     fn parse_html_comment_ignore() {
         let d = extract_directive("<!-- sentinella-ignore S5 -->").unwrap();
-        assert_eq!(d.kind, DirectiveKind::IgnoreCurrentLine);
+        assert_eq!(d.kind, DirectiveKind::CurrentLine);
         assert_eq!(d.scanner_id, "S5");
     }
 

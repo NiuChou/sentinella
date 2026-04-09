@@ -63,8 +63,8 @@ fn check_redis_otp_without_delete(ctx: &ScanContext, findings: &mut Vec<Finding>
     let by_file = group_redis_ops_by_file(&otp_refs);
 
     for (file, ops) in &by_file {
-        let has_read = ops.iter().any(|op| *op == RedisOp::Read);
-        let has_delete = ops.iter().any(|op| *op == RedisOp::Delete);
+        let has_read = ops.contains(&RedisOp::Read);
+        let has_delete = ops.contains(&RedisOp::Delete);
 
         if has_read && !has_delete {
             let line = otp_refs

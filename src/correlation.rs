@@ -159,11 +159,7 @@ fn cluster_by_proximity(entries: &[FileFinding]) -> Vec<Vec<&FileFinding>> {
 }
 
 fn line_distance(a: usize, b: usize) -> usize {
-    if a > b {
-        a - b
-    } else {
-        b - a
-    }
+    a.abs_diff(b)
 }
 
 /// Build a `CorrelationGroup` from a cluster of file-findings.

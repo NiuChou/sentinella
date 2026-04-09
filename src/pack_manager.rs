@@ -1,30 +1,11 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use crate::rule_pack::schema::RulePack;
+use crate::rule_pack::schema::{PackSource, RulePack};
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PackSource {
-    Builtin,
-    User,
-    Project,
-    Community,
-}
-
-impl fmt::Display for PackSource {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            PackSource::Builtin => write!(f, "builtin"),
-            PackSource::User => write!(f, "user"),
-            PackSource::Project => write!(f, "project"),
-            PackSource::Community => write!(f, "community"),
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct PackInfo {
@@ -96,7 +77,7 @@ fn collect_packs_from_dir(dir: &Path, source: PackSource, packs: &mut Vec<PackIn
     for entry in entries.flatten() {
         let path = entry.path();
         if is_yaml_file(&path) {
-            if let Some(info) = load_pack_info(&path, source.clone()) {
+            if let Some(info) = load_pack_info(&path, source) {
                 packs.push(info);
             }
         }

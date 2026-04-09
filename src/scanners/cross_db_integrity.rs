@@ -133,10 +133,7 @@ fn has_safeguard(
 }
 
 /// Build a finding for a table that has a cross-DB reference without safeguards.
-fn build_finding(
-    table: &crate::indexer::types::TableInfo,
-    ref_cfg: &CrossDbRefConfig,
-) -> Finding {
+fn build_finding(table: &crate::indexer::types::TableInfo, ref_cfg: &CrossDbRefConfig) -> Finding {
     Finding::new(
         SCANNER_ID,
         Severity::Info,
@@ -176,7 +173,6 @@ mod tests {
     use crate::config::schema::Config;
     use crate::indexer::store::IndexStore;
     use crate::indexer::types::TableInfo;
-    use std::path::PathBuf;
     use std::sync::Arc;
 
     fn minimal_config() -> Config {

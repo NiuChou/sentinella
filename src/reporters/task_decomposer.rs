@@ -181,6 +181,53 @@ fn scanner_to_task_types(id: &str) -> Vec<TaskType> {
         "S7" => vec![TaskType::AddConfig],
         "S8" => vec![TaskType::AddTest],
         "S9" => vec![TaskType::FixApi],
+        // S10: EventSchemaDrift — missing test coverage + code fix
+        "S10" => vec![TaskType::AddTest, TaskType::FixApi],
+        // S11: SensitiveDataLogging — security fix
+        "S11" => vec![TaskType::FixCredential],
+        // S12 is handled via classify_s12_finding; should not reach here
+        // S13: InsecureTokenStorage — security fix
+        "S13" => vec![TaskType::FixCredential],
+        // S14: OtpReplayProtection — security fix
+        "S14" => vec![TaskType::FixRLS],
+        // S15: RefreshTokenRotation — security fix
+        "S15" => vec![TaskType::FixRLS],
+        // S16: TokenInvalidation — security fix
+        "S16" => vec![TaskType::FixRLS],
+        // S17: SilentErrorSwallowing — code fix
+        "S17" => vec![TaskType::FixApi],
+        // S18: PolicyStrength — security fix
+        "S18" => vec![TaskType::FixRLS],
+        // S19: PermissionBoundary — security fix
+        "S19" => vec![TaskType::FixRLS],
+        // S20: TestBypassDetection — add test
+        "S20" => vec![TaskType::AddTest],
+        // S21: AuditLogCompleteness — code fix + config
+        "S21" => vec![TaskType::FixApi, TaskType::AddConfig],
+        // S22: RateLimitingCoverage — security fix + config
+        "S22" => vec![TaskType::FixRLS, TaskType::AddConfig],
+        // S23: DestructiveEndpointSafety — security fix
+        "S23" => vec![TaskType::FixRLS],
+        // S24: RoleHardcoding — code fix + security fix
+        "S24" => vec![TaskType::FixApi, TaskType::FixRLS],
+        // S25: MissingUniqueness — code fix
+        "S25" => vec![TaskType::FixApi],
+        // S26: RaceConditionSafety — code fix
+        "S26" => vec![TaskType::FixApi],
+        // S27: SoftDeleteLifecycle — code fix
+        "S27" => vec![TaskType::FixApi],
+        // S28: AppendOnlyLifecycle — code fix
+        "S28" => vec![TaskType::FixApi],
+        // S29: RlsCoverageGate — security fix
+        "S29" => vec![TaskType::FixRLS],
+        // S30: CrossDbIntegrity — code fix
+        "S30" => vec![TaskType::FixApi],
+        // S31: IntegrationTestCov — add test
+        "S31" => vec![TaskType::AddTest],
+        // S32: CrossServiceDuplication — refactor/flow fix
+        "S32" => vec![TaskType::FixFlow],
+        // S33: DocFactDrift — config/documentation update
+        "S33" => vec![TaskType::AddConfig],
         _ => vec![TaskType::AddConfig],
     }
 }

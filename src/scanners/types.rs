@@ -1,7 +1,6 @@
 use std::fmt;
-use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use crate::config::Config;
 use crate::indexer::store::IndexStore;
@@ -27,12 +26,22 @@ impl fmt::Display for Severity {
 }
 
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+    Debug,
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 #[serde(rename_all = "lowercase")]
 pub enum Confidence {
-    Suspect,   // < 0.5 -- low confidence, likely false positive
-    Likely,    // 0.5-0.8 -- medium confidence, needs review
+    Suspect, // < 0.5 -- low confidence, likely false positive
+    #[default]
+    Likely, // 0.5-0.8 -- medium confidence, needs review
     Confirmed, // >= 0.8 -- high confidence, AST-precise match
 }
 
@@ -55,12 +64,6 @@ impl Confidence {
             Confidence::Likely => 0.65,
             Confidence::Suspect => 0.25,
         }
-    }
-}
-
-impl Default for Confidence {
-    fn default() -> Self {
-        Self::Likely
     }
 }
 
@@ -129,29 +132,47 @@ impl Finding {
 
     /// Generate a deterministic ID for tracking findings across runs.
     ///
-    /// The ID is based on scanner name, relative file path, and a normalized
-    /// message pattern. Line numbers are excluded because code moves between
-    /// edits while the finding identity remains the same.
+    /// Uses FNV-1a (deterministic across Rust versions) over
+    /// `"{scanner}:{rel_file}:{normalized_message}"`.  Line numbers are
+    /// excluded because code moves between edits while finding identity stays.
     pub fn stable_id(&self, root: &std::path::Path) -> String {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        self.scanner.hash(&mut hasher);
-        if let Some(ref file) = self.file {
-            let rel = file.strip_prefix(root).unwrap_or(file);
-            rel.to_string_lossy().hash(&mut hasher);
-        }
-        self.normalize_message().hash(&mut hasher);
-        let hash = hasher.finish();
-        format!("{}-{:08x}", self.scanner, hash as u32)
+        let rel_file = self
+            .file
+            .as_ref()
+            .map(|f| {
+                f.strip_prefix(root)
+                    .unwrap_or(f)
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .unwrap_or_default();
+        let key = format!("{}:{}:{}", self.scanner, rel_file, self.normalize_message());
+        let hash = fnv1a_hash(&key);
+        format!("{}-{:08x}", self.scanner, hash)
     }
 
     fn normalize_message(&self) -> String {
-        let re_method =
-            regex::Regex::new(r"(GET|POST|PUT|PATCH|DELETE)\s+\S+").expect("valid regex");
+        static RE_METHOD: OnceLock<regex::Regex> = OnceLock::new();
+        static RE_LINE: OnceLock<regex::Regex> = OnceLock::new();
+
+        let re_method = RE_METHOD.get_or_init(|| {
+            regex::Regex::new(r"(GET|POST|PUT|PATCH|DELETE)\s+\S+").expect("valid regex")
+        });
         let normalized = re_method.replace_all(&self.message, "METHOD PATH");
-        let re_line = regex::Regex::new(r"line \d+").expect("valid regex");
-        let normalized = re_line.replace_all(&normalized, "line N");
-        normalized.into_owned()
+
+        let re_line = RE_LINE.get_or_init(|| regex::Regex::new(r"line \d+").expect("valid regex"));
+        re_line.replace_all(&normalized, "line N").into_owned()
     }
+}
+
+/// FNV-1a 32-bit hash — deterministic and stable across Rust versions.
+pub fn fnv1a_hash(input: &str) -> u32 {
+    let mut hash: u32 = 2_166_136_261;
+    for byte in input.bytes() {
+        hash ^= byte as u32;
+        hash = hash.wrapping_mul(16_777_619);
+    }
+    hash
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

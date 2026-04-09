@@ -1257,11 +1257,7 @@ fn scan_token_refresh_py(path: &Path, source: &[u8], store: &IndexStore) {
     for (line_num, line_text) in source_str.lines().enumerate() {
         if refresh_re.is_match(line_text) {
             let has_nearby_revocation = revocation_lines.iter().any(|&rl| {
-                let diff = if rl > line_num {
-                    rl - line_num
-                } else {
-                    line_num - rl
-                };
+                let diff = rl.abs_diff(line_num);
                 diff <= PROXIMITY
             });
 

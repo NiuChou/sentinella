@@ -374,7 +374,7 @@ fn normalize_param_segments(input: &str) -> String {
             // Consume `${param_name}`, replace with :param
             chars.next(); // consume '{'
             result.push_str(":param");
-            while let Some(inner) = chars.next() {
+            for inner in chars.by_ref() {
                 if inner == '}' {
                     break;
                 }
@@ -391,7 +391,7 @@ fn normalize_param_segments(input: &str) -> String {
         } else if ch == '{' {
             // Consume `{param_name}`, replace with :param
             result.push_str(":param");
-            while let Some(inner) = chars.next() {
+            for inner in chars.by_ref() {
                 if inner == '}' {
                     break;
                 }
@@ -399,7 +399,7 @@ fn normalize_param_segments(input: &str) -> String {
         } else if ch == '[' {
             // Consume `[param_name]`, replace with :param
             result.push_str(":param");
-            while let Some(inner) = chars.next() {
+            for inner in chars.by_ref() {
                 if inner == ']' {
                     break;
                 }
