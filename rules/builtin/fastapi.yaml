@@ -39,9 +39,11 @@ protection_evidence:
   - name: fastapi-depends-auth
     description: >
       Detects Depends() calls that inject common auth/user-verification
-      dependencies (get_current_user, verify_token, require_auth, etc.).
+      dependencies.  Matches both explicit names and the broad pattern
+      Depends(<anything containing "auth", "user", "token", "session",
+      "permission", "role", "login", "credential", "verify", "jwt">).
     type: regex
-    pattern: 'Depends\(\s*(?:get_current_user|require_auth|verify_token|get_user|auth|jwt|current_user|token_required)'
+    pattern: 'Depends\(\s*(?:get_current_user|require_auth|verify_token|get_user|token_required|check_permission|validate_token|get_authenticated_user|require_login|ensure_authenticated|\w*(?:auth|user|token|session|permission|role|login|credential|verify|jwt)\w*)\s*\)'
     provides:
       kind: auth
       confidence: 0.90
@@ -78,6 +80,17 @@ protection_evidence:
     provides:
       kind: rate-limit
       confidence: 0.85
+
+  # --- @limiter.limit() decorator ---
+  - name: fastapi-limiter-decorator
+    description: >
+      Detects the @limiter.limit() decorator pattern commonly used with
+      slowapi or flask-limiter style rate limiting in FastAPI/Starlette.
+    type: regex
+    pattern: '@\w*limiter\w*\.limit\s*\('
+    provides:
+      kind: rate-limit
+      confidence: 0.90
 
 # ---------------------------------------------------------------------------
 # Data-source evidence rules

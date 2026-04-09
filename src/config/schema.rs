@@ -384,9 +384,33 @@ fn default_exclude_vars() -> Vec<String> {
     ]
 }
 
-/// Well-known env var prefixes provided by CI/CD and hosting platforms.
-/// Variables matching these prefixes are excluded by default.
-pub const EXCLUDED_VAR_PREFIXES: &[&str] = &["GITHUB_", "VERCEL_", "NETLIFY_"];
+/// Well-known env var prefixes provided by CI/CD, hosting platforms, and
+/// frontend build tools.  Variables matching these prefixes are excluded by
+/// default because they are injected at build/deploy time and never read from
+/// the runtime environment.
+pub const EXCLUDED_VAR_PREFIXES: &[&str] = &[
+    // CI/CD & hosting platforms
+    "GITHUB_",
+    "VERCEL_",
+    "NETLIFY_",
+    "GITLAB_CI_",
+    "CIRCLECI_",
+    "BUILDKITE_",
+    "HEROKU_",
+    "RAILWAY_",
+    "RENDER_",
+    "FLY_",
+    "AWS_LAMBDA_",
+    "AZURE_",
+    // Frontend build-time prefixes (embedded at compile time, not runtime env)
+    "NEXT_PUBLIC_",
+    "VITE_",
+    "REACT_APP_",
+    "NUXT_",
+    "EXPO_PUBLIC_",
+    "GATSBY_",
+    "VUE_APP_",
+];
 
 // ---------------------------------------------------------------------------
 // DataIsolationConfig

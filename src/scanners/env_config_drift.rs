@@ -5,12 +5,12 @@ use crate::config::schema::EXCLUDED_VAR_PREFIXES;
 
 use super::types::{Finding, ScanContext, ScanResult, Scanner, Severity};
 
-/// Resolve excluded var prefixes: config override or hardcoded defaults.
+/// Resolve excluded var prefixes: config override or hardcoded defaults,
+/// plus any user-specified `build_time_prefixes`.
 fn resolve_exclude_var_prefixes(ctx: &ScanContext) -> Vec<String> {
-    ctx.config
-        .scanner_overrides
-        .s11
-        .as_ref()
+    let s11 = ctx.config.scanner_overrides.s11.as_ref();
+
+    let mut prefixes = s11
         .map(|c| c.exclude_var_prefixes.clone())
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| {
@@ -18,7 +18,20 @@ fn resolve_exclude_var_prefixes(ctx: &ScanContext) -> Vec<String> {
                 .iter()
                 .map(|s| (*s).to_string())
                 .collect()
-        })
+        });
+
+    // Merge build_time_prefixes — these are always additive, never replace the
+    // base list.  This lets users declare project-specific build-time prefixes
+    // (e.g. `MY_APP_PUBLIC_`) without having to re-declare the built-in ones.
+    if let Some(cfg) = s11 {
+        for p in &cfg.build_time_prefixes {
+            if !prefixes.contains(p) {
+                prefixes.push(p.clone());
+            }
+        }
+    }
+
+    prefixes
 }
 
 const SCANNER_ID: &str = "S11";
@@ -275,7 +288,11 @@ fn check_unsafe_defaults(
                 continue;
             }
 
-            // If we have the actual default value, check it directly
+            // Only flag when we have a concrete default value that contains an
+            // unsafe address.  Previously we had a fallback heuristic that guessed
+            // based on variable names when `default_value` was None — this caused
+            // widespread false positives for Go `LookupEnv` and Rust `option_env!`
+            // which always set `has_default: true` without capturing the value.
             if let Some(ref default_val) = env_ref.default_value {
                 if contains_unsafe_default(default_val) {
                     findings.push(
@@ -295,28 +312,6 @@ fn check_unsafe_defaults(
                         )),
                     );
                 }
-                continue;
-            }
-
-            // Fallback: no default_value captured, flag connection vars with any default
-            if is_connection_var(&env_ref.var_name) {
-                findings.push(
-                    Finding::new(
-                        SCANNER_ID,
-                        Severity::Warning,
-                        format!(
-                            "Unsafe default: '{}' has a default value for a connection variable - \
-                             verify it does not contain localhost or 127.0.0.1",
-                            env_ref.var_name
-                        ),
-                    )
-                    .with_file(env_ref.file.clone())
-                    .with_line(env_ref.line)
-                    .with_suggestion(format!(
-                        "Remove the default value for '{}' or ensure it points to a valid environment-specific endpoint",
-                        env_ref.var_name
-                    )),
-                );
             }
         }
     }
@@ -413,10 +408,20 @@ mod tests {
     #[test]
     fn test_platform_prefix_excluded() {
         let exclude_vars: Vec<String> = Vec::new();
-        // Even with no exact matches, GITHUB_ prefix should be excluded
+        // CI/CD platform prefixes
         assert!(is_excluded_var("GITHUB_TOKEN", &exclude_vars));
         assert!(is_excluded_var("VERCEL_URL", &exclude_vars));
         assert!(is_excluded_var("NETLIFY_BUILD_ID", &exclude_vars));
+        assert!(is_excluded_var("GITLAB_CI_PIPELINE_ID", &exclude_vars));
+        // Frontend build-time prefixes
+        assert!(is_excluded_var("NEXT_PUBLIC_API_URL", &exclude_vars));
+        assert!(is_excluded_var("VITE_API_BASE", &exclude_vars));
+        assert!(is_excluded_var("REACT_APP_BACKEND_URL", &exclude_vars));
+        assert!(is_excluded_var("NUXT_PUBLIC_KEY", &exclude_vars));
+        assert!(is_excluded_var("EXPO_PUBLIC_API", &exclude_vars));
+        assert!(is_excluded_var("GATSBY_STRIPE_KEY", &exclude_vars));
+        assert!(is_excluded_var("VUE_APP_TITLE", &exclude_vars));
+        // Non-matching
         assert!(!is_excluded_var("MY_CUSTOM_VAR", &exclude_vars));
     }
 
@@ -452,6 +457,138 @@ mod tests {
         let filtered = collect_filtered_var_names(&map, &exclude_paths, &exclude_vars);
         assert!(!filtered.contains("PRISMA_ENGINE"));
         assert!(filtered.contains("DATABASE_URL"));
+    }
+
+    #[test]
+    fn test_no_false_positive_when_default_value_unknown() {
+        // Regression: Go LookupEnv and Rust option_env! set has_default=true
+        // but don't capture default_value.  The old fallback heuristic would
+        // flag any connection-related var name — this test ensures we no longer
+        // emit a finding without a concrete default value.
+        use crate::config::Config;
+        use crate::indexer::store::IndexStore;
+        use std::path::Path;
+
+        let config = Config {
+            version: "1.0".into(),
+            project: "test".into(),
+            r#type: Default::default(),
+            layers: Default::default(),
+            modules: Default::default(),
+            flows: Default::default(),
+            deploy: Default::default(),
+            integration_tests: Default::default(),
+            events: Default::default(),
+            env: Default::default(),
+            output: Default::default(),
+            dispatch: Default::default(),
+            data_isolation: Default::default(),
+            required_layers: Default::default(),
+            linked_repos: Vec::new(),
+            suppress: None,
+            scanner_overrides: Default::default(),
+            database_security: Default::default(),
+        };
+        let store = IndexStore::new();
+
+        // Simulate Go LookupEnv("REDIS_HOST") — has_default but no value
+        store.infra.env_refs.insert(
+            "REDIS_HOST".to_string(),
+            vec![crate::indexer::types::EnvRef {
+                var_name: "REDIS_HOST".to_string(),
+                file: std::path::PathBuf::from("pkg/config/config.go"),
+                line: 12,
+                has_default: true,
+                default_value: None,
+            }],
+        );
+        store.infra.env_configs.insert(
+            "REDIS_HOST".to_string(),
+            vec![crate::indexer::types::EnvConfig {
+                var_name: "REDIS_HOST".to_string(),
+                source_file: std::path::PathBuf::from(".env"),
+                source_type: crate::indexer::types::EnvSourceType::DotEnv,
+            }],
+        );
+
+        let ctx = crate::scanners::types::ScanContext {
+            config: &config,
+            index: &store,
+            root_dir: Path::new("/tmp"),
+        };
+
+        let result = EnvConfigDrift.scan(&ctx);
+        let unsafe_findings: Vec<_> = result
+            .findings
+            .iter()
+            .filter(|f| f.message.contains("Unsafe default"))
+            .collect();
+        assert_eq!(
+            unsafe_findings.len(),
+            0,
+            "Should NOT flag connection vars when default_value is unknown"
+        );
+    }
+
+    #[test]
+    fn test_build_time_prefixes_merged() {
+        use crate::config::{Config, schema::ScannerOverrides, schema::S11Config};
+        use crate::indexer::store::IndexStore;
+        use std::path::Path;
+
+        let config = Config {
+            version: "1.0".into(),
+            project: "test".into(),
+            r#type: Default::default(),
+            layers: Default::default(),
+            modules: Default::default(),
+            flows: Default::default(),
+            deploy: Default::default(),
+            integration_tests: Default::default(),
+            events: Default::default(),
+            env: Default::default(),
+            output: Default::default(),
+            dispatch: Default::default(),
+            data_isolation: Default::default(),
+            required_layers: Default::default(),
+            linked_repos: Vec::new(),
+            suppress: None,
+            scanner_overrides: ScannerOverrides {
+                s11: Some(S11Config {
+                    exclude_var_prefixes: Vec::new(), // empty → use defaults
+                    build_time_prefixes: vec!["MY_APP_PUBLIC_".to_string()],
+                }),
+                ..Default::default()
+            },
+            database_security: Default::default(),
+        };
+        let store = IndexStore::new();
+
+        // This var matches the custom build_time prefix — should be excluded
+        store.infra.env_refs.insert(
+            "MY_APP_PUBLIC_KEY".to_string(),
+            vec![crate::indexer::types::EnvRef {
+                var_name: "MY_APP_PUBLIC_KEY".to_string(),
+                file: std::path::PathBuf::from("src/config.ts"),
+                line: 3,
+                has_default: false,
+                default_value: None,
+            }],
+        );
+
+        let ctx = crate::scanners::types::ScanContext {
+            config: &config,
+            index: &store,
+            root_dir: Path::new("/tmp"),
+        };
+
+        let result = EnvConfigDrift.scan(&ctx);
+        // Should produce no findings — the var is excluded via build_time_prefixes
+        assert!(
+            result.findings.is_empty(),
+            "build_time_prefixes should exclude matching vars, got: {:?}",
+            result.findings.iter().map(|f| &f.message).collect::<Vec<_>>()
+        );
     }
 
     #[test]
