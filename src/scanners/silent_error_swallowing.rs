@@ -119,7 +119,7 @@ layers: {}
         let store = IndexStore::new();
         let file = PathBuf::from("src/api.ts");
 
-        store.error_handling_refs.insert(
+        store.code_quality.error_handling_refs.insert(
             file.clone(),
             vec![
                 ErrorHandlingRef {

@@ -155,7 +155,7 @@ layers: {}
     fn store_with_bypass(bypass: TestBypassRef) -> Arc<IndexStore> {
         let store = IndexStore::new();
         let file = bypass.file.clone();
-        store.test_bypass_refs.insert(file, vec![bypass]);
+        store.security.test_bypass_refs.insert(file, vec![bypass]);
         store
     }
 
@@ -314,7 +314,7 @@ layers: {}
     fn mixed_severities_summary() {
         let store = IndexStore::new();
         let file = PathBuf::from("src/auth/login.ts");
-        store.test_bypass_refs.insert(
+        store.security.test_bypass_refs.insert(
             file.clone(),
             vec![
                 make_ref(TestBypassType::MasterPassword, "backdoor", 10),

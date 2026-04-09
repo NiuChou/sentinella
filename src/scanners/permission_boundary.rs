@@ -299,7 +299,7 @@ mod tests {
         config.database_security.permission_boundaries.enabled = false;
 
         let store = IndexStore::new();
-        store.grant_details.insert(
+        store.security.grant_details.insert(
             "users".to_string(),
             vec![make_grant("users", "anon", &["ALL"], true)],
         );
@@ -330,7 +330,7 @@ mod tests {
             });
 
         let store = IndexStore::new();
-        store.grant_details.insert(
+        store.security.grant_details.insert(
             "users".to_string(),
             vec![make_grant("users", "anon", &["SELECT", "INSERT"], false)],
         );
@@ -364,7 +364,7 @@ mod tests {
             });
 
         let store = IndexStore::new();
-        store.grant_details.insert(
+        store.security.grant_details.insert(
             "users".to_string(),
             vec![make_grant("users", "anon", &["SELECT"], false)],
         );
@@ -395,7 +395,7 @@ mod tests {
             });
 
         let store = IndexStore::new();
-        store.grant_details.insert(
+        store.security.grant_details.insert(
             "users".to_string(),
             vec![make_grant("users", "admin", &["ALL"], false)],
         );
@@ -414,7 +414,7 @@ mod tests {
     fn blanket_grant_is_critical() {
         let config = default_config();
         let store = IndexStore::new();
-        store.grant_details.insert(
+        store.security.grant_details.insert(
             "ALL TABLES IN SCHEMA public".to_string(),
             vec![make_grant(
                 "ALL TABLES IN SCHEMA public",
@@ -443,7 +443,7 @@ mod tests {
         config.database_security.permission_boundaries.flag_patterns = vec!["anon".to_string()];
 
         let store = IndexStore::new();
-        store.grant_details.insert(
+        store.security.grant_details.insert(
             "posts".to_string(),
             vec![make_grant("posts", "anon", &["SELECT"], false)],
         );
@@ -466,7 +466,7 @@ mod tests {
         config.database_security.permission_boundaries.flag_patterns = vec!["[invalid".to_string()];
 
         let store = IndexStore::new();
-        store.grant_details.insert(
+        store.security.grant_details.insert(
             "posts".to_string(),
             vec![make_grant("posts", "anon", &["SELECT"], false)],
         );
@@ -490,7 +490,7 @@ mod tests {
         // 6 blanket grants => 6 * 20 = 120, clamped to 0
         for i in 0..6 {
             let table = format!("table_{i}");
-            store.grant_details.insert(
+            store.security.grant_details.insert(
                 table.clone(),
                 vec![make_grant(&table, "bad_role", &["ALL"], true)],
             );
@@ -523,12 +523,12 @@ mod tests {
 
         let store = IndexStore::new();
         // Restricted table violation (Critical, -20)
-        store.grant_details.insert(
+        store.security.grant_details.insert(
             "secrets".to_string(),
             vec![make_grant("secrets", "anon", &["SELECT"], false)],
         );
         // Blanket grant (Critical, -20)
-        store.grant_details.insert(
+        store.security.grant_details.insert(
             "ALL TABLES IN SCHEMA public".to_string(),
             vec![make_grant(
                 "ALL TABLES IN SCHEMA public",
@@ -567,7 +567,7 @@ mod tests {
             });
 
         let store = IndexStore::new();
-        store.grant_details.insert(
+        store.security.grant_details.insert(
             "users".to_string(),
             vec![make_grant("users", "anon", &["SELECT"], false)],
         );

@@ -70,6 +70,7 @@ impl Scanner for IntegrationTestCoverage {
 
         // Collect non-excluded tables
         let tables: Vec<_> = store
+            .data
             .db_tables
             .iter()
             .filter(|entry| {
@@ -92,6 +93,7 @@ impl Scanner for IntegrationTestCoverage {
 
         // Collect all test files once
         let test_files: Vec<_> = store
+            .code_quality
             .test_files
             .iter()
             .map(|entry| entry.value().clone())
@@ -303,7 +305,7 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.db_tables.insert(
+        store.data.db_tables.insert(
             "users".into(),
             TableInfo {
                 schema_name: Some("public".into()),
@@ -331,7 +333,7 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.db_tables.insert(
+        store.data.db_tables.insert(
             "users".into(),
             TableInfo {
                 schema_name: Some("public".into()),
@@ -342,7 +344,7 @@ mod tests {
             },
         );
 
-        store.test_files.insert(
+        store.code_quality.test_files.insert(
             PathBuf::from("tests/integration/users.test.ts"),
             TestFileInfo {
                 path: PathBuf::from("tests/integration/users.test.ts"),
@@ -369,7 +371,7 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.db_tables.insert(
+        store.data.db_tables.insert(
             "orders".into(),
             TableInfo {
                 schema_name: Some("public".into()),
@@ -380,7 +382,7 @@ mod tests {
             },
         );
 
-        store.test_files.insert(
+        store.code_quality.test_files.insert(
             PathBuf::from("tests/integration/orders.test.ts"),
             TestFileInfo {
                 path: PathBuf::from("tests/integration/orders.test.ts"),
@@ -413,7 +415,7 @@ mod tests {
         config.integration_tests.exclude_tables = vec!["_prisma_migrations".into()];
         let store = IndexStore::new();
 
-        store.db_tables.insert(
+        store.data.db_tables.insert(
             "_prisma_migrations".into(),
             TableInfo {
                 schema_name: Some("public".into()),
@@ -440,7 +442,7 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.db_tables.insert(
+        store.data.db_tables.insert(
             "users".into(),
             TableInfo {
                 schema_name: Some("public".into()),
@@ -452,7 +454,7 @@ mod tests {
         );
 
         // Test file with only reads, no writes or asserts
-        store.test_files.insert(
+        store.code_quality.test_files.insert(
             PathBuf::from("tests/integration/users.test.ts"),
             TestFileInfo {
                 path: PathBuf::from("tests/integration/users.test.ts"),
@@ -479,7 +481,7 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.db_tables.insert(
+        store.data.db_tables.insert(
             "users".into(),
             TableInfo {
                 schema_name: Some("public".into()),
@@ -489,7 +491,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        store.db_tables.insert(
+        store.data.db_tables.insert(
             "posts".into(),
             TableInfo {
                 schema_name: Some("public".into()),
@@ -501,7 +503,7 @@ mod tests {
         );
 
         // Only users has a test (full coverage)
-        store.test_files.insert(
+        store.code_quality.test_files.insert(
             PathBuf::from("tests/integration/users.test.ts"),
             TestFileInfo {
                 path: PathBuf::from("tests/integration/users.test.ts"),

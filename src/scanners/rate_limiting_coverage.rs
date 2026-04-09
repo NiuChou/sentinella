@@ -199,12 +199,13 @@ layers: {}
 
     fn insert_endpoint(store: &IndexStore, ep: &ApiEndpoint) {
         let key = normalize_api_path(&ep.path);
-        store.api_endpoints.entry(key).or_default().push(ep.clone());
+        store.api.endpoints.entry(key).or_default().push(ep.clone());
     }
 
     fn insert_rate_limit(store: &IndexStore, file: &str, line: usize, limit_type: RateLimitType) {
         let path = PathBuf::from(file);
         store
+            .security
             .rate_limit_refs
             .entry(path.clone())
             .or_default()

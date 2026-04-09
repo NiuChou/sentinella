@@ -280,7 +280,7 @@ fn has_matching_endpoint(ctx: &ScanContext, route: &Option<String>) -> bool {
         None => return false,
     };
 
-    ctx.index.api_endpoints.iter().any(|entry| {
+    ctx.index.api.endpoints.iter().any(|entry| {
         entry
             .value()
             .iter()

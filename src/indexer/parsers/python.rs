@@ -107,7 +107,8 @@ fn parse_routes(
             };
 
             store
-                .api_endpoints
+                .api
+                .endpoints
                 .entry(normalized)
                 .or_default()
                 .push(endpoint);
@@ -156,6 +157,7 @@ fn parse_env_refs(
             };
 
             store
+                .infra
                 .env_refs
                 .entry(var_name.clone())
                 .or_default()
@@ -212,6 +214,7 @@ fn scan_stub_indicators(path: &Path, source: &[u8], store: &IndexStore) {
                 };
 
                 store
+                    .code_quality
                     .stub_indicators
                     .entry(path.to_path_buf())
                     .or_default()
@@ -259,7 +262,8 @@ fn scan_event_patterns(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
-                    .event_producers
+                    .events
+                    .producers
                     .entry(topic.as_str().to_string())
                     .or_default()
                     .push(entry);
@@ -281,7 +285,8 @@ fn scan_event_patterns(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
-                    .event_consumers
+                    .events
+                    .consumers
                     .entry(topic.as_str().to_string())
                     .or_default()
                     .push(entry);
@@ -370,6 +375,7 @@ fn scan_db_writes_py(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .data
                     .db_write_refs
                     .entry(table_name)
                     .or_default()
@@ -402,6 +408,7 @@ fn scan_redis_patterns_py(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .data
                     .redis_key_refs
                     .entry(key.as_str().to_string())
                     .or_default()
@@ -419,6 +426,7 @@ fn scan_redis_patterns_py(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .data
                     .redis_key_refs
                     .entry(key.as_str().to_string())
                     .or_default()
@@ -436,6 +444,7 @@ fn scan_redis_patterns_py(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .data
                     .redis_key_refs
                     .entry(key.as_str().to_string())
                     .or_default()
@@ -463,6 +472,7 @@ fn scan_rls_context_py(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .security
                     .rls_context_refs
                     .entry(path.to_path_buf())
                     .or_default()
@@ -478,6 +488,7 @@ fn scan_rls_context_py(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .security
                     .rls_context_refs
                     .entry(path.to_path_buf())
                     .or_default()
@@ -523,6 +534,7 @@ fn scan_hardcoded_creds_py(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .security
                     .hardcoded_creds
                     .entry(path.to_path_buf())
                     .or_default()
@@ -591,6 +603,7 @@ fn scan_db_pool_refs_py(path: &Path, source: &[u8], store: &IndexStore) {
         };
 
         store
+            .data
             .db_pool_refs
             .entry(path.to_path_buf())
             .or_default()
@@ -672,6 +685,7 @@ fn scan_sql_query_refs_py(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .data
                     .sql_query_refs
                     .entry(table_name)
                     .or_default()
@@ -729,6 +743,7 @@ fn scan_secondary_auth_py(path: &Path, source: &[u8], store: &IndexStore) {
                 near_endpoint: None,
             };
             store
+                .security
                 .secondary_auth_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -761,6 +776,7 @@ fn scan_error_handling_py(path: &Path, source: &[u8], store: &IndexStore) {
                 context: "except: pass".to_string(),
             };
             store
+                .code_quality
                 .error_handling_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -808,6 +824,7 @@ fn scan_role_checks_py(path: &Path, source: &[u8], store: &IndexStore) {
                     is_middleware: in_middleware,
                 };
                 store
+                    .security
                     .role_check_refs
                     .entry(path.to_path_buf())
                     .or_default()
@@ -824,6 +841,7 @@ fn scan_role_checks_py(path: &Path, source: &[u8], store: &IndexStore) {
                 is_middleware: in_middleware,
             };
             store
+                .security
                 .role_check_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -882,6 +900,7 @@ fn scan_function_signatures_py(
                     service_name: None,
                 };
                 store
+                    .code_quality
                     .function_signatures
                     .entry(path.to_path_buf())
                     .or_default()
@@ -947,6 +966,7 @@ fn scan_session_invalidation_py(path: &Path, source: &[u8], store: &IndexStore) 
                 invalidation_type: inv_type,
             };
             store
+                .security
                 .session_invalidation_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -1009,6 +1029,7 @@ fn scan_sensitive_logging_py(path: &Path, source: &[u8], store: &IndexStore) {
                     matched_text: trimmed.chars().take(120).collect(),
                 };
                 store
+                    .security
                     .sensitive_log_refs
                     .entry(path.to_path_buf())
                     .or_default()
@@ -1056,6 +1077,7 @@ fn scan_rate_limit_py(path: &Path, source: &[u8], store: &IndexStore) {
                 limit_type,
             };
             store
+                .security
                 .rate_limit_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -1094,6 +1116,7 @@ fn scan_audit_log_py(path: &Path, source: &[u8], store: &IndexStore) {
                 event_name: None,
             };
             store
+                .security
                 .audit_log_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -1204,6 +1227,7 @@ fn scan_test_bypass_py(path: &Path, source: &[u8], store: &IndexStore) {
                 matched_value,
             };
             store
+                .security
                 .test_bypass_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -1267,6 +1291,7 @@ fn scan_token_refresh_py(path: &Path, source: &[u8], store: &IndexStore) {
                 has_old_token_revocation: has_nearby_revocation,
             };
             store
+                .security
                 .token_refresh_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -1334,6 +1359,7 @@ fn scan_concurrency_safety_py(path: &Path, source: &[u8], store: &IndexStore) {
                 safety_type,
             };
             store
+                .code_quality
                 .concurrency_safety_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -1415,7 +1441,7 @@ mod tests {
     fn parses_env_refs_direct_access() {
         let store = parse_fixture("env_refs.py");
         assert!(
-            store.env_refs.contains_key("DATABASE_URL"),
+            store.infra.env_refs.contains_key("DATABASE_URL"),
             "Missing DATABASE_URL"
         );
     }
@@ -1424,6 +1450,7 @@ mod tests {
     fn parses_env_refs_with_default() {
         let store = parse_fixture("env_refs.py");
         let has_default = store
+            .infra
             .env_refs
             .get("PORT")
             .map(|refs| refs[0].has_default)

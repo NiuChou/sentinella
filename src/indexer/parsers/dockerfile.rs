@@ -46,7 +46,7 @@ impl LanguageParser for DockerfileParser {
             has_dockerignore,
         };
 
-        store.dockerfile_checks.insert(service_name, check);
+        store.infra.dockerfile_checks.insert(service_name, check);
 
         Ok(())
     }
@@ -142,7 +142,7 @@ mod tests {
     #[test]
     fn detects_healthcheck() {
         let store = parse_fixture("Dockerfile");
-        let check = store.dockerfile_checks.iter().next();
+        let check = store.infra.dockerfile_checks.iter().next();
         assert!(check.is_some(), "Should have a dockerfile check entry");
         let entry = check.unwrap();
         assert!(
@@ -154,14 +154,14 @@ mod tests {
     #[test]
     fn detects_non_root_user() {
         let store = parse_fixture("Dockerfile");
-        let check = store.dockerfile_checks.iter().next().unwrap();
+        let check = store.infra.dockerfile_checks.iter().next().unwrap();
         assert!(check.has_user, "Should detect non-root USER instruction");
     }
 
     #[test]
     fn detects_pinned_base_image() {
         let store = parse_fixture("Dockerfile");
-        let check = store.dockerfile_checks.iter().next().unwrap();
+        let check = store.infra.dockerfile_checks.iter().next().unwrap();
         assert!(
             check.base_pinned,
             "node:20-alpine should be considered pinned"

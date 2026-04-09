@@ -141,6 +141,7 @@ mod tests {
     fn insert_policies(store: &IndexStore, policies: Vec<RlsPolicyInfo>) {
         for p in policies {
             store
+                .security
                 .rls_policies
                 .entry(p.table_name.clone())
                 .or_default()

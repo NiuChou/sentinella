@@ -104,15 +104,19 @@ fn extract_create_table(create_table: &sqlparser::ast::CreateTable, store: &Inde
     // Detect PARTITION BY from the AST (sqlparser stores it as partition_by)
     let has_partition = create_table.partition_by.is_some();
 
-    store.db_tables.entry(key).or_insert_with(|| TableInfo {
-        schema_name,
-        table_name,
-        columns,
-        has_rls: false,
-        has_force_rls: false,
-        has_partition,
-        app_role: None,
-    });
+    store
+        .data
+        .db_tables
+        .entry(key)
+        .or_insert_with(|| TableInfo {
+            schema_name,
+            table_name,
+            columns,
+            has_rls: false,
+            has_force_rls: false,
+            has_partition,
+            app_role: None,
+        });
 }
 
 /// Extract ALTER TABLE ... ENABLE/FORCE ROW LEVEL SECURITY.
@@ -123,18 +127,18 @@ fn extract_alter_table(alter_table: &sqlparser::ast::AlterTable, store: &IndexSt
     for op in &alter_table.operations {
         match op {
             AlterTableOperation::EnableRowLevelSecurity => {
-                if let Some(mut entry) = store.db_tables.get_mut(&key) {
+                if let Some(mut entry) = store.data.db_tables.get_mut(&key) {
                     entry.has_rls = true;
                 }
             }
             AlterTableOperation::ForceRowLevelSecurity => {
                 // FORCE RLS also implies RLS is enabled
-                if let Some(mut entry) = store.db_tables.get_mut(&key) {
+                if let Some(mut entry) = store.data.db_tables.get_mut(&key) {
                     entry.has_rls = true;
                     entry.has_force_rls = true;
                 }
                 // Update policy entries (also handled by regex fallback)
-                if let Some(mut policies) = store.rls_policies.get_mut(&key) {
+                if let Some(mut policies) = store.security.rls_policies.get_mut(&key) {
                     for policy in policies.value_mut().iter_mut() {
                         policy.has_force = true;
                     }
@@ -173,7 +177,7 @@ fn extract_grant(grant: &sqlparser::ast::Grant, store: &IndexStore) {
         let (schema_name, table_name) = extract_object_name(table_ref);
         let key = make_key(&schema_name, &table_name);
 
-        if let Some(mut entry) = store.db_tables.get_mut(&key) {
+        if let Some(mut entry) = store.data.db_tables.get_mut(&key) {
             entry.app_role = Some(role.clone());
         }
 
@@ -183,7 +187,12 @@ fn extract_grant(grant: &sqlparser::ast::Grant, store: &IndexStore) {
             role: role.clone(),
             is_blanket: false,
         };
-        store.grant_details.entry(key).or_default().push(detail);
+        store
+            .security
+            .grant_details
+            .entry(key)
+            .or_default()
+            .push(detail);
     }
 }
 
@@ -332,15 +341,19 @@ fn parse_tables_regex(source: &str, store: &IndexStore) {
             window.to_uppercase().contains("PARTITION BY")
         };
 
-        store.db_tables.entry(key).or_insert_with(|| TableInfo {
-            schema_name,
-            table_name,
-            columns,
-            has_rls: false,
-            has_force_rls: false,
-            has_partition,
-            app_role: None,
-        });
+        store
+            .data
+            .db_tables
+            .entry(key)
+            .or_insert_with(|| TableInfo {
+                schema_name,
+                table_name,
+                columns,
+                has_rls: false,
+                has_force_rls: false,
+                has_partition,
+                app_role: None,
+            });
     }
 }
 
@@ -400,7 +413,7 @@ fn parse_rls_enable_regex(source: &str, store: &IndexStore) {
             .unwrap_or_default();
         let key = make_key(&schema, &table);
 
-        if let Some(mut entry) = store.db_tables.get_mut(&key) {
+        if let Some(mut entry) = store.data.db_tables.get_mut(&key) {
             entry.has_rls = true;
         }
     }
@@ -421,7 +434,7 @@ fn parse_grants_regex(source: &str, store: &IndexStore) {
             .unwrap_or_default();
         let key = make_key(&schema, &table);
 
-        if let Some(mut entry) = store.db_tables.get_mut(&key) {
+        if let Some(mut entry) = store.data.db_tables.get_mut(&key) {
             entry.app_role = Some(role);
         }
     }
@@ -438,7 +451,7 @@ fn parse_rls_policies_regex(source: &str, store: &IndexStore) {
             .unwrap_or_default();
         let key = make_key(&schema, &table);
 
-        if let Some(mut entry) = store.db_tables.get_mut(&key) {
+        if let Some(mut entry) = store.data.db_tables.get_mut(&key) {
             entry.has_rls = true;
         }
     }
@@ -483,7 +496,12 @@ fn parse_rls_policy_details_regex(source: &str, store: &IndexStore) {
             with_check_expr,
         };
 
-        store.rls_policies.entry(key).or_default().push(info);
+        store
+            .security
+            .rls_policies
+            .entry(key)
+            .or_default()
+            .push(info);
     }
 }
 
@@ -498,13 +516,13 @@ fn parse_force_rls_regex(source: &str, store: &IndexStore) {
             .unwrap_or_default();
         let key = make_key(&schema, &table);
 
-        if let Some(mut policies) = store.rls_policies.get_mut(&key) {
+        if let Some(mut policies) = store.security.rls_policies.get_mut(&key) {
             for policy in policies.value_mut().iter_mut() {
                 policy.has_force = true;
             }
         }
 
-        if let Some(mut entry) = store.db_tables.get_mut(&key) {
+        if let Some(mut entry) = store.data.db_tables.get_mut(&key) {
             entry.has_rls = true;
             entry.has_force_rls = true;
         }
@@ -537,6 +555,7 @@ fn parse_blanket_grants_regex(source: &str, store: &IndexStore) {
         };
 
         store
+            .security
             .grant_details
             .entry("__blanket__".to_string())
             .or_default()
@@ -569,6 +588,7 @@ fn parse_blanket_grants_regex(source: &str, store: &IndexStore) {
         };
 
         store
+            .security
             .grant_details
             .entry("__blanket__".to_string())
             .or_default()
@@ -656,6 +676,7 @@ fn extract_soft_delete_from_columns(
                 line,
             };
             store
+                .data
                 .soft_delete_columns
                 .entry(table_name.to_string())
                 .or_default()
@@ -735,6 +756,7 @@ fn try_extract_status_literal(
         service_name: None,
     };
     store
+        .data
         .status_literal_refs
         .entry(entry.column_name.clone())
         .or_default()
@@ -796,6 +818,7 @@ fn extract_soft_delete_regex(path: &Path, source: &str, store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .data
                     .soft_delete_columns
                     .entry(current_table.clone())
                     .or_default()
@@ -828,6 +851,7 @@ fn extract_status_literals_regex(path: &Path, source: &str, store: &IndexStore) 
                     service_name: None,
                 };
                 store
+                    .data
                     .status_literal_refs
                     .entry(col_name)
                     .or_default()
@@ -877,6 +901,7 @@ fn extract_unique_constraints(path: &Path, source: &str, store: &IndexStore) {
                         line,
                     };
                     store
+                        .data
                         .unique_constraint_refs
                         .entry(table_name.clone())
                         .or_default()
@@ -899,6 +924,7 @@ fn extract_unique_constraints(path: &Path, source: &str, store: &IndexStore) {
                             line,
                         };
                         store
+                            .data
                             .unique_constraint_refs
                             .entry(table_name.clone())
                             .or_default()
@@ -923,6 +949,7 @@ fn extract_unique_constraints(path: &Path, source: &str, store: &IndexStore) {
                 .unwrap_or_default();
             // Avoid duplicates from AST
             let already_exists = store
+                .data
                 .unique_constraint_refs
                 .get(&table_name)
                 .map(|refs| refs.iter().any(|r| r.column_name == column_name))
@@ -935,6 +962,7 @@ fn extract_unique_constraints(path: &Path, source: &str, store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .data
                     .unique_constraint_refs
                     .entry(table_name)
                     .or_default()
@@ -980,6 +1008,7 @@ fn extract_column_lookups(path: &Path, source: &str, store: &IndexStore) {
                 .map(|m| m.as_str().to_string())
                 .unwrap_or_default();
             let already = store
+                .data
                 .column_lookup_refs
                 .get(&table_name)
                 .map(|refs| {
@@ -995,6 +1024,7 @@ fn extract_column_lookups(path: &Path, source: &str, store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .data
                     .column_lookup_refs
                     .entry(table_name)
                     .or_default()
@@ -1051,6 +1081,7 @@ fn extract_lookups_from_where_with_table(
                             line,
                         };
                         store
+                            .data
                             .column_lookup_refs
                             .entry(table_name.to_string())
                             .or_default()
@@ -1093,7 +1124,7 @@ mod tests {
     fn detects_create_table() {
         let store = parse_fixture("migrations.sql");
         assert!(
-            store.db_tables.contains_key("users"),
+            store.data.db_tables.contains_key("users"),
             "Should detect users table"
         );
     }
@@ -1102,7 +1133,7 @@ mod tests {
     fn detects_create_table_with_schema() {
         let store = parse_fixture("migrations.sql");
         assert!(
-            store.db_tables.contains_key("public.orders"),
+            store.data.db_tables.contains_key("public.orders"),
             "Should detect public.orders table"
         );
     }
@@ -1111,6 +1142,7 @@ mod tests {
     fn detects_rls_via_alter_table() {
         let store = parse_fixture("migrations.sql");
         let has_rls = store
+            .data
             .db_tables
             .get("users")
             .map(|u| u.has_rls)
@@ -1122,6 +1154,7 @@ mod tests {
     fn detects_rls_via_create_policy() {
         let store = parse_fixture("migrations.sql");
         let has_rls = store
+            .data
             .db_tables
             .get("users")
             .map(|u| u.has_rls)
@@ -1133,6 +1166,7 @@ mod tests {
     fn table_without_rls() {
         let store = parse_fixture("migrations.sql");
         let has_rls = store
+            .data
             .db_tables
             .get("public.orders")
             .map(|o| o.has_rls)
@@ -1144,6 +1178,7 @@ mod tests {
     fn detects_grant_role() {
         let store = parse_fixture("migrations.sql");
         let app_role = store
+            .data
             .db_tables
             .get("users")
             .and_then(|u| u.app_role.clone());

@@ -243,7 +243,7 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.api_endpoints.insert(
+        store.api.endpoints.insert(
             "/users".into(),
             vec![make_endpoint(
                 HttpMethod::Post,
@@ -270,7 +270,7 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.api_endpoints.insert(
+        store.api.endpoints.insert(
             "/health".into(),
             vec![make_endpoint(
                 HttpMethod::Get,
@@ -297,7 +297,7 @@ mod tests {
 
         let file = PathBuf::from("routes/users.ts");
 
-        store.api_endpoints.insert(
+        store.api.endpoints.insert(
             "/users".into(),
             vec![make_endpoint(
                 HttpMethod::Post,
@@ -311,7 +311,7 @@ mod tests {
         add_auth_evidence(&store, &file, 5, 20);
 
         // Keep legacy middleware_scopes for backward compat
-        store.middleware_scopes.insert(
+        store.security.middleware_scopes.insert(
             file.clone(),
             vec![MiddlewareScope {
                 router_var: "router".into(),
@@ -340,7 +340,7 @@ mod tests {
 
         let file = PathBuf::from("routes/users.ts");
 
-        store.api_endpoints.insert(
+        store.api.endpoints.insert(
             "/users".into(),
             vec![make_endpoint(
                 HttpMethod::Delete,
@@ -354,7 +354,7 @@ mod tests {
         add_auth_evidence(&store, &file, 5, 20);
 
         // Keep legacy middleware_scopes for backward compat
-        store.middleware_scopes.insert(
+        store.security.middleware_scopes.insert(
             file.clone(),
             vec![MiddlewareScope {
                 router_var: "router".into(),
@@ -383,7 +383,7 @@ mod tests {
 
         let file = PathBuf::from("routes/api.ts");
 
-        store.api_endpoints.insert(
+        store.api.endpoints.insert(
             "/data".into(),
             vec![make_endpoint(HttpMethod::Put, "/data", "routes/api.ts", 10)],
         );
@@ -400,7 +400,7 @@ mod tests {
         });
 
         // Keep legacy middleware_scopes for backward compat
-        store.middleware_scopes.insert(
+        store.security.middleware_scopes.insert(
             file.clone(),
             vec![MiddlewareScope {
                 router_var: "router".into(),
@@ -430,7 +430,7 @@ mod tests {
 
         let file = PathBuf::from("routes/mixed.ts");
 
-        store.api_endpoints.insert(
+        store.api.endpoints.insert(
             "/protected".into(),
             vec![make_endpoint(
                 HttpMethod::Get,
@@ -439,7 +439,7 @@ mod tests {
                 10,
             )],
         );
-        store.api_endpoints.insert(
+        store.api.endpoints.insert(
             "/open".into(),
             vec![make_endpoint(
                 HttpMethod::Get,
@@ -453,7 +453,7 @@ mod tests {
         add_auth_evidence(&store, &file, 5, 15);
 
         // Keep legacy middleware_scopes for backward compat
-        store.middleware_scopes.insert(
+        store.security.middleware_scopes.insert(
             file.clone(),
             vec![MiddlewareScope {
                 router_var: "router".into(),
@@ -482,7 +482,7 @@ mod tests {
 
         let file = PathBuf::from("routes/public.ts");
 
-        store.api_endpoints.insert(
+        store.api.endpoints.insert(
             "/health".into(),
             vec![make_endpoint(
                 HttpMethod::Get,
@@ -521,7 +521,7 @@ mod tests {
 
         let file = PathBuf::from("routes/maybe.ts");
 
-        store.api_endpoints.insert(
+        store.api.endpoints.insert(
             "/maybe".into(),
             vec![make_endpoint(
                 HttpMethod::Get,
@@ -560,7 +560,7 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.api_endpoints.insert(
+        store.api.endpoints.insert(
             "/users".into(),
             vec![make_endpoint(
                 HttpMethod::Post,

@@ -113,7 +113,7 @@ fn find_segment_after_prefix(path: &str, prefix: &str) -> Option<String> {
 fn collect_shared_functions(ctx: &ScanContext) -> HashMap<String, bool> {
     let mut shared = HashMap::new();
 
-    for entry in ctx.index.function_signatures.iter() {
+    for entry in ctx.index.code_quality.function_signatures.iter() {
         let path_str = entry.key().to_string_lossy();
         let normalized = path_str.replace('\\', "/").to_lowercase();
 

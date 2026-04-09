@@ -566,6 +566,7 @@ mod tests {
         let store = IndexStore::new();
 
         store
+            .data
             .soft_delete_columns
             .entry("users".into())
             .or_default()
@@ -575,6 +576,7 @@ mod tests {
                 SoftDeleteType::Timestamp,
             ));
         store
+            .data
             .sql_query_refs
             .entry("users".into())
             .or_default()
@@ -607,6 +609,7 @@ mod tests {
         let store = IndexStore::new();
 
         store
+            .data
             .soft_delete_columns
             .entry("users".into())
             .or_default()
@@ -616,6 +619,7 @@ mod tests {
                 SoftDeleteType::Timestamp,
             ));
         store
+            .data
             .sql_query_refs
             .entry("users".into())
             .or_default()
@@ -644,6 +648,7 @@ mod tests {
         let store = IndexStore::new();
 
         store
+            .data
             .soft_delete_columns
             .entry("orders".into())
             .or_default()
@@ -654,6 +659,7 @@ mod tests {
             ));
         // Only delete, no update
         store
+            .data
             .sql_query_refs
             .entry("orders".into())
             .or_default()
@@ -685,6 +691,7 @@ mod tests {
         let store = IndexStore::new();
 
         store
+            .data
             .soft_delete_columns
             .entry("orders".into())
             .or_default()
@@ -694,6 +701,7 @@ mod tests {
                 SoftDeleteType::Status,
             ));
         store
+            .data
             .sql_query_refs
             .entry("orders".into())
             .or_default()
@@ -704,6 +712,7 @@ mod tests {
                 false,
             ));
         store
+            .data
             .sql_query_refs
             .entry("orders".into())
             .or_default()
@@ -780,6 +789,7 @@ mod tests {
         let store = IndexStore::new();
 
         store
+            .data
             .soft_delete_columns
             .entry("users".into())
             .or_default()
@@ -790,6 +800,7 @@ mod tests {
             ));
         // UPDATE in a file whose path contains "reactivate" but no PII field names
         store
+            .data
             .sql_query_refs
             .entry("users".into())
             .or_default()
@@ -822,6 +833,7 @@ mod tests {
         let store = IndexStore::new();
 
         store
+            .data
             .soft_delete_columns
             .entry("users".into())
             .or_default()
@@ -832,6 +844,7 @@ mod tests {
             ));
         // File path contains both reactivation keyword AND a PII field name
         store
+            .data
             .sql_query_refs
             .entry("users".into())
             .or_default()
@@ -863,6 +876,7 @@ mod tests {
         let uuid_file = PathBuf::from("src/reactivate_user.ts");
 
         store
+            .data
             .soft_delete_columns
             .entry("users".into())
             .or_default()
@@ -872,6 +886,7 @@ mod tests {
                 SoftDeleteType::Status,
             ));
         store
+            .data
             .sql_query_refs
             .entry("users".into())
             .or_default()

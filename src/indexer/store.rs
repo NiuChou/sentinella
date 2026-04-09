@@ -4,169 +4,65 @@ use std::sync::Arc;
 
 use super::types::*;
 
+/// API routing and endpoint data
 #[derive(Default)]
-pub struct IndexStore {
-    pub files: DashMap<PathBuf, FileInfo>,
-    pub api_endpoints: DashMap<String, Vec<ApiEndpoint>>,
-    pub api_calls: DashMap<String, Vec<ApiCall>>,
-    pub imports: DashMap<PathBuf, Vec<ImportEdge>>,
-    pub env_refs: DashMap<String, Vec<EnvRef>>,
-    pub env_configs: DashMap<String, Vec<EnvConfig>>,
-    pub event_producers: DashMap<String, Vec<EventProducer>>,
-    pub event_consumers: DashMap<String, Vec<EventConsumer>>,
-    pub db_tables: DashMap<String, TableInfo>,
-    pub test_files: DashMap<PathBuf, TestFileInfo>,
-    pub stub_indicators: DashMap<PathBuf, Vec<StubIndicator>>,
-    pub dockerfile_checks: DashMap<String, DockerfileCheck>,
-    pub middleware_scopes: DashMap<PathBuf, Vec<MiddlewareScope>>,
-    pub db_write_refs: DashMap<String, Vec<DbWriteRef>>,
-    pub redis_key_refs: DashMap<String, Vec<RedisKeyRef>>,
-    pub rls_context_refs: DashMap<PathBuf, Vec<RlsContextRef>>,
-    pub rls_policies: DashMap<String, Vec<RlsPolicyInfo>>,
-    pub hardcoded_creds: DashMap<PathBuf, Vec<HardcodedCredential>>,
-    pub sql_query_refs: DashMap<String, Vec<SqlQueryRef>>,
-    pub db_pool_refs: DashMap<PathBuf, Vec<DbPoolRef>>,
-    pub service_boundaries: DashMap<String, ServiceBoundary>,
-    pub table_ownership: DashMap<String, String>,
-    pub secondary_auth_refs: DashMap<PathBuf, Vec<SecondaryAuthRef>>,
-    pub soft_delete_columns: DashMap<String, Vec<SoftDeleteColumn>>,
-    pub error_handling_refs: DashMap<PathBuf, Vec<ErrorHandlingRef>>,
-    pub role_check_refs: DashMap<PathBuf, Vec<RoleCheckRef>>,
-    pub function_signatures: DashMap<PathBuf, Vec<FunctionSignature>>,
-    pub status_literal_refs: DashMap<String, Vec<StatusLiteralRef>>,
-    pub session_invalidation_refs: DashMap<PathBuf, Vec<SessionInvalidationRef>>,
-    pub sensitive_log_refs: DashMap<PathBuf, Vec<SensitiveLogRef>>,
-    pub insecure_storage_refs: DashMap<PathBuf, Vec<InsecureStorageRef>>,
-    pub rate_limit_refs: DashMap<PathBuf, Vec<RateLimitRef>>,
-    pub audit_log_refs: DashMap<PathBuf, Vec<AuditLogRef>>,
-    pub unique_constraint_refs: DashMap<String, Vec<UniqueConstraintRef>>,
-    pub column_lookup_refs: DashMap<String, Vec<ColumnLookupRef>>,
-    pub test_bypass_refs: DashMap<PathBuf, Vec<TestBypassRef>>,
-    pub token_refresh_refs: DashMap<PathBuf, Vec<TokenRefreshRef>>,
-    pub concurrency_safety_refs: DashMap<PathBuf, Vec<ConcurrencySafetyRef>>,
-    pub grant_details: DashMap<String, Vec<GrantDetail>>,
-    pub evidence_store: crate::evidence::EvidenceStore,
+pub struct ApiStore {
+    pub endpoints: DashMap<String, Vec<ApiEndpoint>>,
+    pub calls: DashMap<String, Vec<ApiCall>>,
 }
 
-impl IndexStore {
-    pub fn new() -> Arc<Self> {
-        Arc::new(Self::default())
-    }
-
-    pub fn all_api_endpoints(&self) -> Vec<ApiEndpoint> {
-        self.api_endpoints
+impl ApiStore {
+    pub fn all_endpoints(&self) -> Vec<ApiEndpoint> {
+        self.endpoints
             .iter()
             .flat_map(|entry| entry.value().clone())
             .collect()
     }
 
-    pub fn all_api_calls(&self) -> Vec<ApiCall> {
-        self.api_calls
-            .iter()
-            .flat_map(|entry| entry.value().clone())
-            .collect()
-    }
-
-    pub fn all_imports(&self) -> Vec<ImportEdge> {
-        self.imports
-            .iter()
-            .flat_map(|entry| entry.value().clone())
-            .collect()
-    }
-
-    pub fn all_env_refs(&self) -> Vec<EnvRef> {
-        self.env_refs
-            .iter()
-            .flat_map(|entry| entry.value().clone())
-            .collect()
-    }
-
-    pub fn all_env_configs(&self) -> Vec<EnvConfig> {
-        self.env_configs
-            .iter()
-            .flat_map(|entry| entry.value().clone())
-            .collect()
-    }
-
-    pub fn all_event_producers(&self) -> Vec<EventProducer> {
-        self.event_producers
-            .iter()
-            .flat_map(|entry| entry.value().clone())
-            .collect()
-    }
-
-    pub fn all_event_consumers(&self) -> Vec<EventConsumer> {
-        self.event_consumers
-            .iter()
-            .flat_map(|entry| entry.value().clone())
-            .collect()
-    }
-
-    pub fn all_db_tables(&self) -> Vec<TableInfo> {
-        self.db_tables
-            .iter()
-            .map(|entry| entry.value().clone())
-            .collect()
-    }
-
-    pub fn all_test_files(&self) -> Vec<TestFileInfo> {
-        self.test_files
-            .iter()
-            .map(|entry| entry.value().clone())
-            .collect()
-    }
-
-    pub fn all_dockerfile_checks(&self) -> Vec<DockerfileCheck> {
-        self.dockerfile_checks
-            .iter()
-            .map(|entry| entry.value().clone())
-            .collect()
-    }
-
-    pub fn all_stub_indicators(&self) -> Vec<StubIndicator> {
-        self.stub_indicators
+    pub fn all_calls(&self) -> Vec<ApiCall> {
+        self.calls
             .iter()
             .flat_map(|entry| entry.value().clone())
             .collect()
     }
 
     pub fn endpoints_for_path(&self, normalized: &str) -> Vec<ApiEndpoint> {
-        self.api_endpoints
+        self.endpoints
             .get(normalized)
             .map(|entry| entry.value().clone())
             .unwrap_or_default()
     }
 
     pub fn calls_for_url(&self, normalized: &str) -> Vec<ApiCall> {
-        self.api_calls
+        self.calls
             .get(normalized)
             .map(|entry| entry.value().clone())
             .unwrap_or_default()
     }
+}
 
-    pub fn imports_for_file(&self, path: &Path) -> Vec<ImportEdge> {
-        self.imports
-            .get(path)
-            .map(|entry| entry.value().clone())
-            .unwrap_or_default()
-    }
+/// Security-related indexed data (auth, tokens, credentials, RLS, etc.)
+#[derive(Default)]
+pub struct SecurityStore {
+    pub middleware_scopes: DashMap<PathBuf, Vec<MiddlewareScope>>,
+    pub hardcoded_creds: DashMap<PathBuf, Vec<HardcodedCredential>>,
+    pub rls_context_refs: DashMap<PathBuf, Vec<RlsContextRef>>,
+    pub rls_policies: DashMap<String, Vec<RlsPolicyInfo>>,
+    pub secondary_auth_refs: DashMap<PathBuf, Vec<SecondaryAuthRef>>,
+    pub role_check_refs: DashMap<PathBuf, Vec<RoleCheckRef>>,
+    pub session_invalidation_refs: DashMap<PathBuf, Vec<SessionInvalidationRef>>,
+    pub sensitive_log_refs: DashMap<PathBuf, Vec<SensitiveLogRef>>,
+    pub insecure_storage_refs: DashMap<PathBuf, Vec<InsecureStorageRef>>,
+    pub rate_limit_refs: DashMap<PathBuf, Vec<RateLimitRef>>,
+    pub audit_log_refs: DashMap<PathBuf, Vec<AuditLogRef>>,
+    pub test_bypass_refs: DashMap<PathBuf, Vec<TestBypassRef>>,
+    pub token_refresh_refs: DashMap<PathBuf, Vec<TokenRefreshRef>>,
+    pub grant_details: DashMap<String, Vec<GrantDetail>>,
+}
 
-    pub fn stubs_for_file(&self, path: &Path) -> Vec<StubIndicator> {
-        self.stub_indicators
-            .get(path)
-            .map(|entry| entry.value().clone())
-            .unwrap_or_default()
-    }
-
-    pub fn all_db_write_refs(&self) -> Vec<DbWriteRef> {
-        self.db_write_refs
-            .iter()
-            .flat_map(|entry| entry.value().clone())
-            .collect()
-    }
-
-    pub fn all_redis_key_refs(&self) -> Vec<RedisKeyRef> {
-        self.redis_key_refs
+impl SecurityStore {
+    pub fn all_hardcoded_creds(&self) -> Vec<HardcodedCredential> {
+        self.hardcoded_creds
             .iter()
             .flat_map(|entry| entry.value().clone())
             .collect()
@@ -186,34 +82,6 @@ impl IndexStore {
             .collect()
     }
 
-    pub fn all_hardcoded_creds(&self) -> Vec<HardcodedCredential> {
-        self.hardcoded_creds
-            .iter()
-            .flat_map(|entry| entry.value().clone())
-            .collect()
-    }
-
-    pub fn all_sql_query_refs(&self) -> Vec<SqlQueryRef> {
-        self.sql_query_refs
-            .iter()
-            .flat_map(|entry| entry.value().clone())
-            .collect()
-    }
-
-    pub fn all_db_pool_refs(&self) -> Vec<(PathBuf, Vec<DbPoolRef>)> {
-        self.db_pool_refs
-            .iter()
-            .map(|entry| (entry.key().clone(), entry.value().clone()))
-            .collect()
-    }
-
-    pub fn all_service_boundaries(&self) -> Vec<(String, ServiceBoundary)> {
-        self.service_boundaries
-            .iter()
-            .map(|entry| (entry.key().clone(), entry.value().clone()))
-            .collect()
-    }
-
     pub fn all_secondary_auth_refs(&self) -> Vec<SecondaryAuthRef> {
         self.secondary_auth_refs
             .iter()
@@ -221,36 +89,8 @@ impl IndexStore {
             .collect()
     }
 
-    pub fn all_soft_delete_columns(&self) -> Vec<SoftDeleteColumn> {
-        self.soft_delete_columns
-            .iter()
-            .flat_map(|entry| entry.value().clone())
-            .collect()
-    }
-
-    pub fn all_error_handling_refs(&self) -> Vec<ErrorHandlingRef> {
-        self.error_handling_refs
-            .iter()
-            .flat_map(|entry| entry.value().clone())
-            .collect()
-    }
-
     pub fn all_role_check_refs(&self) -> Vec<RoleCheckRef> {
         self.role_check_refs
-            .iter()
-            .flat_map(|entry| entry.value().clone())
-            .collect()
-    }
-
-    pub fn all_function_signatures(&self) -> Vec<FunctionSignature> {
-        self.function_signatures
-            .iter()
-            .flat_map(|entry| entry.value().clone())
-            .collect()
-    }
-
-    pub fn all_status_literal_refs(&self) -> Vec<StatusLiteralRef> {
-        self.status_literal_refs
             .iter()
             .flat_map(|entry| entry.value().clone())
             .collect()
@@ -291,20 +131,6 @@ impl IndexStore {
             .collect()
     }
 
-    pub fn all_unique_constraint_refs(&self) -> Vec<UniqueConstraintRef> {
-        self.unique_constraint_refs
-            .iter()
-            .flat_map(|entry| entry.value().clone())
-            .collect()
-    }
-
-    pub fn all_column_lookup_refs(&self) -> Vec<ColumnLookupRef> {
-        self.column_lookup_refs
-            .iter()
-            .flat_map(|entry| entry.value().clone())
-            .collect()
-    }
-
     pub fn all_test_bypass_refs(&self) -> Vec<TestBypassRef> {
         self.test_bypass_refs
             .iter()
@@ -319,6 +145,84 @@ impl IndexStore {
             .collect()
     }
 
+    pub fn all_grant_details(&self) -> Vec<GrantDetail> {
+        self.grant_details
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+}
+
+/// Infrastructure and deployment data (env vars, Docker, config)
+#[derive(Default)]
+pub struct InfraStore {
+    pub env_refs: DashMap<String, Vec<EnvRef>>,
+    pub env_configs: DashMap<String, Vec<EnvConfig>>,
+    pub dockerfile_checks: DashMap<String, DockerfileCheck>,
+}
+
+impl InfraStore {
+    pub fn all_env_refs(&self) -> Vec<EnvRef> {
+        self.env_refs
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_env_configs(&self) -> Vec<EnvConfig> {
+        self.env_configs
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_dockerfile_checks(&self) -> Vec<DockerfileCheck> {
+        self.dockerfile_checks
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
+    }
+}
+
+/// Code quality and testing data (error handling, test patterns, stubs)
+#[derive(Default)]
+pub struct CodeQualityStore {
+    pub stub_indicators: DashMap<PathBuf, Vec<StubIndicator>>,
+    pub test_files: DashMap<PathBuf, TestFileInfo>,
+    pub error_handling_refs: DashMap<PathBuf, Vec<ErrorHandlingRef>>,
+    pub function_signatures: DashMap<PathBuf, Vec<FunctionSignature>>,
+    pub concurrency_safety_refs: DashMap<PathBuf, Vec<ConcurrencySafetyRef>>,
+}
+
+impl CodeQualityStore {
+    pub fn all_stub_indicators(&self) -> Vec<StubIndicator> {
+        self.stub_indicators
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_test_files(&self) -> Vec<TestFileInfo> {
+        self.test_files
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_error_handling_refs(&self) -> Vec<ErrorHandlingRef> {
+        self.error_handling_refs
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_function_signatures(&self) -> Vec<FunctionSignature> {
+        self.function_signatures
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
     pub fn all_concurrency_safety_refs(&self) -> Vec<ConcurrencySafetyRef> {
         self.concurrency_safety_refs
             .iter()
@@ -326,16 +230,327 @@ impl IndexStore {
             .collect()
     }
 
-    pub fn all_grant_details(&self) -> Vec<GrantDetail> {
-        self.grant_details
+    pub fn stubs_for_file(&self, path: &Path) -> Vec<StubIndicator> {
+        self.stub_indicators
+            .get(path)
+            .map(|entry| entry.value().clone())
+            .unwrap_or_default()
+    }
+}
+
+/// Database and data layer (SQL, migrations, pools, Redis)
+#[derive(Default)]
+pub struct DataStore {
+    pub db_tables: DashMap<String, TableInfo>,
+    pub db_write_refs: DashMap<String, Vec<DbWriteRef>>,
+    pub sql_query_refs: DashMap<String, Vec<SqlQueryRef>>,
+    pub db_pool_refs: DashMap<PathBuf, Vec<DbPoolRef>>,
+    pub service_boundaries: DashMap<String, ServiceBoundary>,
+    pub table_ownership: DashMap<String, String>,
+    pub soft_delete_columns: DashMap<String, Vec<SoftDeleteColumn>>,
+    pub redis_key_refs: DashMap<String, Vec<RedisKeyRef>>,
+    pub unique_constraint_refs: DashMap<String, Vec<UniqueConstraintRef>>,
+    pub column_lookup_refs: DashMap<String, Vec<ColumnLookupRef>>,
+    pub status_literal_refs: DashMap<String, Vec<StatusLiteralRef>>,
+}
+
+impl DataStore {
+    pub fn all_db_tables(&self) -> Vec<TableInfo> {
+        self.db_tables
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_db_write_refs(&self) -> Vec<DbWriteRef> {
+        self.db_write_refs
             .iter()
             .flat_map(|entry| entry.value().clone())
             .collect()
     }
 
+    pub fn all_sql_query_refs(&self) -> Vec<SqlQueryRef> {
+        self.sql_query_refs
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_db_pool_refs(&self) -> Vec<(PathBuf, Vec<DbPoolRef>)> {
+        self.db_pool_refs
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect()
+    }
+
+    pub fn all_service_boundaries(&self) -> Vec<(String, ServiceBoundary)> {
+        self.service_boundaries
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect()
+    }
+
+    pub fn all_soft_delete_columns(&self) -> Vec<SoftDeleteColumn> {
+        self.soft_delete_columns
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_redis_key_refs(&self) -> Vec<RedisKeyRef> {
+        self.redis_key_refs
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_unique_constraint_refs(&self) -> Vec<UniqueConstraintRef> {
+        self.unique_constraint_refs
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_column_lookup_refs(&self) -> Vec<ColumnLookupRef> {
+        self.column_lookup_refs
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_status_literal_refs(&self) -> Vec<StatusLiteralRef> {
+        self.status_literal_refs
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+}
+
+/// Event and messaging (Kafka, event schemas)
+#[derive(Default)]
+pub struct EventStore {
+    pub producers: DashMap<String, Vec<EventProducer>>,
+    pub consumers: DashMap<String, Vec<EventConsumer>>,
+}
+
+impl EventStore {
+    pub fn all_producers(&self) -> Vec<EventProducer> {
+        self.producers
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_consumers(&self) -> Vec<EventConsumer> {
+        self.consumers
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+}
+
+#[derive(Default)]
+pub struct IndexStore {
+    // Cross-cutting fields at top level
+    pub files: DashMap<PathBuf, FileInfo>,
+    pub imports: DashMap<PathBuf, Vec<ImportEdge>>,
+
+    // Domain sub-stores
+    pub api: ApiStore,
+    pub security: SecurityStore,
+    pub infra: InfraStore,
+    pub code_quality: CodeQualityStore,
+    pub data: DataStore,
+    pub events: EventStore,
+
+    pub evidence_store: crate::evidence::EvidenceStore,
+}
+
+impl IndexStore {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
+    // -- API ------------------------------------------------------------------
+
+    pub fn all_api_endpoints(&self) -> Vec<ApiEndpoint> {
+        self.api.all_endpoints()
+    }
+
+    pub fn all_api_calls(&self) -> Vec<ApiCall> {
+        self.api.all_calls()
+    }
+
+    pub fn endpoints_for_path(&self, normalized: &str) -> Vec<ApiEndpoint> {
+        self.api.endpoints_for_path(normalized)
+    }
+
+    pub fn calls_for_url(&self, normalized: &str) -> Vec<ApiCall> {
+        self.api.calls_for_url(normalized)
+    }
+
+    // -- Files / Imports ------------------------------------------------------
+
+    pub fn all_imports(&self) -> Vec<ImportEdge> {
+        self.imports
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn imports_for_file(&self, path: &Path) -> Vec<ImportEdge> {
+        self.imports
+            .get(path)
+            .map(|entry| entry.value().clone())
+            .unwrap_or_default()
+    }
+
+    // -- Infra ----------------------------------------------------------------
+
+    pub fn all_env_refs(&self) -> Vec<EnvRef> {
+        self.infra.all_env_refs()
+    }
+
+    pub fn all_env_configs(&self) -> Vec<EnvConfig> {
+        self.infra.all_env_configs()
+    }
+
+    pub fn all_dockerfile_checks(&self) -> Vec<DockerfileCheck> {
+        self.infra.all_dockerfile_checks()
+    }
+
+    // -- Events ---------------------------------------------------------------
+
+    pub fn all_event_producers(&self) -> Vec<EventProducer> {
+        self.events.all_producers()
+    }
+
+    pub fn all_event_consumers(&self) -> Vec<EventConsumer> {
+        self.events.all_consumers()
+    }
+
+    // -- Data -----------------------------------------------------------------
+
+    pub fn all_db_tables(&self) -> Vec<TableInfo> {
+        self.data.all_db_tables()
+    }
+
+    pub fn all_db_write_refs(&self) -> Vec<DbWriteRef> {
+        self.data.all_db_write_refs()
+    }
+
+    pub fn all_redis_key_refs(&self) -> Vec<RedisKeyRef> {
+        self.data.all_redis_key_refs()
+    }
+
+    pub fn all_rls_context_refs(&self) -> Vec<RlsContextRef> {
+        self.security.all_rls_context_refs()
+    }
+
+    pub fn all_rls_policies(&self) -> Vec<RlsPolicyInfo> {
+        self.security.all_rls_policies()
+    }
+
+    pub fn all_hardcoded_creds(&self) -> Vec<HardcodedCredential> {
+        self.security.all_hardcoded_creds()
+    }
+
+    pub fn all_sql_query_refs(&self) -> Vec<SqlQueryRef> {
+        self.data.all_sql_query_refs()
+    }
+
+    pub fn all_db_pool_refs(&self) -> Vec<(PathBuf, Vec<DbPoolRef>)> {
+        self.data.all_db_pool_refs()
+    }
+
+    pub fn all_service_boundaries(&self) -> Vec<(String, ServiceBoundary)> {
+        self.data.all_service_boundaries()
+    }
+
+    pub fn all_secondary_auth_refs(&self) -> Vec<SecondaryAuthRef> {
+        self.security.all_secondary_auth_refs()
+    }
+
+    pub fn all_soft_delete_columns(&self) -> Vec<SoftDeleteColumn> {
+        self.data.all_soft_delete_columns()
+    }
+
+    pub fn all_error_handling_refs(&self) -> Vec<ErrorHandlingRef> {
+        self.code_quality.all_error_handling_refs()
+    }
+
+    pub fn all_role_check_refs(&self) -> Vec<RoleCheckRef> {
+        self.security.all_role_check_refs()
+    }
+
+    pub fn all_function_signatures(&self) -> Vec<FunctionSignature> {
+        self.code_quality.all_function_signatures()
+    }
+
+    pub fn all_status_literal_refs(&self) -> Vec<StatusLiteralRef> {
+        self.data.all_status_literal_refs()
+    }
+
+    pub fn all_session_invalidation_refs(&self) -> Vec<SessionInvalidationRef> {
+        self.security.all_session_invalidation_refs()
+    }
+
+    pub fn all_sensitive_log_refs(&self) -> Vec<SensitiveLogRef> {
+        self.security.all_sensitive_log_refs()
+    }
+
+    pub fn all_insecure_storage_refs(&self) -> Vec<InsecureStorageRef> {
+        self.security.all_insecure_storage_refs()
+    }
+
+    pub fn all_rate_limit_refs(&self) -> Vec<RateLimitRef> {
+        self.security.all_rate_limit_refs()
+    }
+
+    pub fn all_audit_log_refs(&self) -> Vec<AuditLogRef> {
+        self.security.all_audit_log_refs()
+    }
+
+    pub fn all_unique_constraint_refs(&self) -> Vec<UniqueConstraintRef> {
+        self.data.all_unique_constraint_refs()
+    }
+
+    pub fn all_column_lookup_refs(&self) -> Vec<ColumnLookupRef> {
+        self.data.all_column_lookup_refs()
+    }
+
+    pub fn all_test_bypass_refs(&self) -> Vec<TestBypassRef> {
+        self.security.all_test_bypass_refs()
+    }
+
+    pub fn all_token_refresh_refs(&self) -> Vec<TokenRefreshRef> {
+        self.security.all_token_refresh_refs()
+    }
+
+    pub fn all_concurrency_safety_refs(&self) -> Vec<ConcurrencySafetyRef> {
+        self.code_quality.all_concurrency_safety_refs()
+    }
+
+    pub fn all_grant_details(&self) -> Vec<GrantDetail> {
+        self.security.all_grant_details()
+    }
+
+    pub fn all_test_files(&self) -> Vec<TestFileInfo> {
+        self.code_quality.all_test_files()
+    }
+
+    pub fn all_stub_indicators(&self) -> Vec<StubIndicator> {
+        self.code_quality.all_stub_indicators()
+    }
+
+    pub fn stubs_for_file(&self, path: &Path) -> Vec<StubIndicator> {
+        self.code_quality.stubs_for_file(path)
+    }
+
     /// Deprecated: use `evidence_store.has_protection(file, line, EvidenceKind::Auth)` instead.
     pub fn has_middleware_protection(&self, file: &Path, line: usize) -> bool {
-        self.middleware_scopes
+        self.security
+            .middleware_scopes
             .get(file)
             .map(|scopes| {
                 scopes

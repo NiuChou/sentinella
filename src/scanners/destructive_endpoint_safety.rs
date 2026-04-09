@@ -242,7 +242,7 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.api_endpoints.insert(
+        store.api.endpoints.insert(
             "/users/:id".into(),
             vec![make_delete_endpoint("/users/:id", "routes/users.ts", 20)],
         );
@@ -267,12 +267,13 @@ mod tests {
 
         let file = PathBuf::from("routes/users.ts");
 
-        store.api_endpoints.insert(
+        store.api.endpoints.insert(
             "/users/:id".into(),
             vec![make_delete_endpoint("/users/:id", "routes/users.ts", 20)],
         );
 
         store
+            .security
             .secondary_auth_refs
             .insert(file, vec![make_secondary_auth("routes/users.ts", 18)]);
 
@@ -292,16 +293,16 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.api_endpoints.insert(
+        store.api.endpoints.insert(
             "/users/:id".into(),
             vec![make_delete_endpoint("/users/:id", "routes/users.ts", 20)],
         );
-        store.api_endpoints.insert(
+        store.api.endpoints.insert(
             "/posts/:id".into(),
             vec![make_delete_endpoint("/posts/:id", "routes/posts.ts", 15)],
         );
 
-        store.secondary_auth_refs.insert(
+        store.security.secondary_auth_refs.insert(
             PathBuf::from("routes/users.ts"),
             vec![make_secondary_auth("routes/users.ts", 18)],
         );
@@ -325,7 +326,7 @@ mod tests {
 
         let file = "services/cleanup.ts";
 
-        store.db_write_refs.insert(
+        store.data.db_write_refs.insert(
             "sessions".into(),
             vec![DbWriteRef {
                 table_name: "sessions".to_string(),
@@ -354,7 +355,7 @@ mod tests {
 
         let file = "services/archive.ts";
 
-        store.soft_delete_columns.insert(
+        store.data.soft_delete_columns.insert(
             "users".to_string(),
             vec![SoftDeleteColumn {
                 table_name: "users".to_string(),
@@ -365,7 +366,7 @@ mod tests {
             }],
         );
 
-        store.db_write_refs.insert(
+        store.data.db_write_refs.insert(
             "users".into(),
             vec![DbWriteRef {
                 table_name: "users".to_string(),
@@ -392,7 +393,7 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.api_endpoints.insert(
+        store.api.endpoints.insert(
             "/users".into(),
             vec![ApiEndpoint {
                 method: HttpMethod::Get,
@@ -419,7 +420,7 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.api_endpoints.insert(
+        store.api.endpoints.insert(
             "/users/:id".into(),
             vec![make_delete_endpoint("/users/:id", "routes/users.ts", 20)],
         );

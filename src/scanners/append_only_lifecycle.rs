@@ -234,7 +234,7 @@ mod tests {
             .high_volume_tables = vec!["events".into()];
 
         let store = Arc::new(IndexStore::new());
-        store.db_tables.insert(
+        store.data.db_tables.insert(
             "events".into(),
             TableInfo {
                 table_name: "events".into(),
@@ -258,7 +258,7 @@ mod tests {
             .high_volume_tables = vec!["audit_logs".into()];
 
         let store = Arc::new(IndexStore::new());
-        store.db_tables.insert(
+        store.data.db_tables.insert(
             "audit_logs".into(),
             TableInfo {
                 table_name: "audit_logs".into(),
@@ -286,7 +286,7 @@ mod tests {
 
         let store = Arc::new(IndexStore::new());
         for name in &["events", "audit_logs", "notifications"] {
-            store.db_tables.insert(
+            store.data.db_tables.insert(
                 (*name).into(),
                 TableInfo {
                     table_name: (*name).into(),

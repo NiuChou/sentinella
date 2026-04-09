@@ -247,7 +247,7 @@ mod tests {
         let store = IndexStore::new();
 
         let file = PathBuf::from("src/services/user.ts");
-        store.role_check_refs.insert(
+        store.security.role_check_refs.insert(
             file.clone(),
             vec![
                 RoleCheckRef {
@@ -288,7 +288,7 @@ mod tests {
         let store = IndexStore::new();
 
         let file = PathBuf::from("src/middleware/auth.ts");
-        store.role_check_refs.insert(
+        store.security.role_check_refs.insert(
             file.clone(),
             vec![
                 RoleCheckRef {
@@ -330,7 +330,7 @@ mod tests {
         let store = IndexStore::new();
 
         let file = PathBuf::from("src/middleware/auth.ts");
-        store.role_check_refs.insert(
+        store.security.role_check_refs.insert(
             file.clone(),
             vec![RoleCheckRef {
                 file: file.clone(),
@@ -358,7 +358,7 @@ mod tests {
         let store = IndexStore::new();
 
         let file = PathBuf::from("src/guards/role.ts");
-        store.role_check_refs.insert(
+        store.security.role_check_refs.insert(
             file.clone(),
             vec![RoleCheckRef {
                 file: file.clone(),
@@ -386,7 +386,7 @@ mod tests {
         let store = IndexStore::new();
 
         let file = PathBuf::from("src/services/user.ts");
-        store.role_check_refs.insert(
+        store.security.role_check_refs.insert(
             file.clone(),
             vec![RoleCheckRef {
                 file: file.clone(),
@@ -415,7 +415,7 @@ mod tests {
 
         let file_a = PathBuf::from("src/services/a.ts");
         let file_b = PathBuf::from("src/services/b.ts");
-        store.role_check_refs.insert(
+        store.security.role_check_refs.insert(
             file_a.clone(),
             vec![
                 RoleCheckRef {
@@ -434,7 +434,7 @@ mod tests {
                 },
             ],
         );
-        store.role_check_refs.insert(
+        store.security.role_check_refs.insert(
             file_b.clone(),
             vec![RoleCheckRef {
                 file: file_b.clone(),
@@ -486,7 +486,7 @@ mod tests {
 
         // Place in a non-middleware file path but set is_middleware = true
         let file = PathBuf::from("src/services/user.ts");
-        store.role_check_refs.insert(
+        store.security.role_check_refs.insert(
             file.clone(),
             vec![
                 RoleCheckRef {
@@ -523,7 +523,7 @@ mod tests {
         let store = IndexStore::new();
 
         let file = PathBuf::from("src/services/user.ts");
-        store.role_check_refs.insert(
+        store.security.role_check_refs.insert(
             file.clone(),
             vec![
                 RoleCheckRef {

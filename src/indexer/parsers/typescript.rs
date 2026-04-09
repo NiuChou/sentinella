@@ -164,7 +164,8 @@ fn parse_routes(
             };
 
             store
-                .api_endpoints
+                .api
+                .endpoints
                 .entry(normalized)
                 .or_default()
                 .push(endpoint);
@@ -286,7 +287,7 @@ fn parse_api_calls(
                 is_template,
             };
 
-            store.api_calls.entry(normalized).or_default().push(call);
+            store.api.calls.entry(normalized).or_default().push(call);
         }
     });
 }
@@ -318,6 +319,7 @@ fn parse_env_refs(
             };
 
             store
+                .infra
                 .env_refs
                 .entry(var_name.clone())
                 .or_default()
@@ -354,6 +356,7 @@ fn parse_middleware(
             };
 
             store
+                .security
                 .middleware_scopes
                 .entry(path.to_path_buf())
                 .or_default()
@@ -404,6 +407,7 @@ fn scan_stub_indicators(path: &Path, source: &[u8], store: &IndexStore) {
                 };
 
                 store
+                    .code_quality
                     .stub_indicators
                     .entry(path.to_path_buf())
                     .or_default()
@@ -507,6 +511,7 @@ fn scan_db_writes_ts(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .data
                     .db_write_refs
                     .entry(table_name)
                     .or_default()
@@ -539,6 +544,7 @@ fn scan_redis_patterns_ts(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .data
                     .redis_key_refs
                     .entry(key.as_str().to_string())
                     .or_default()
@@ -556,6 +562,7 @@ fn scan_redis_patterns_ts(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .data
                     .redis_key_refs
                     .entry(key.as_str().to_string())
                     .or_default()
@@ -573,6 +580,7 @@ fn scan_redis_patterns_ts(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .data
                     .redis_key_refs
                     .entry(key.as_str().to_string())
                     .or_default()
@@ -616,6 +624,7 @@ fn scan_hardcoded_creds_ts(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .security
                     .hardcoded_creds
                     .entry(path.to_path_buf())
                     .or_default()
@@ -668,6 +677,7 @@ fn scan_rls_context_ts(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .security
                     .rls_context_refs
                     .entry(path.to_path_buf())
                     .or_default()
@@ -711,6 +721,7 @@ fn scan_sql_query_refs_ts(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .data
                     .sql_query_refs
                     .entry(table_name)
                     .or_default()
@@ -804,6 +815,7 @@ fn scan_db_pool_refs_ts(path: &Path, source: &[u8], store: &IndexStore) {
 
     if !refs.is_empty() {
         store
+            .data
             .db_pool_refs
             .entry(path.to_path_buf())
             .or_default()
@@ -859,6 +871,7 @@ fn scan_secondary_auth_ts(path: &Path, source: &[u8], store: &IndexStore) {
                 near_endpoint: None,
             };
             store
+                .security
                 .secondary_auth_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -897,6 +910,7 @@ fn scan_error_handling_ts(path: &Path, source: &[u8], store: &IndexStore) {
                 context: "empty catch block".to_string(),
             };
             store
+                .code_quality
                 .error_handling_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -911,6 +925,7 @@ fn scan_error_handling_ts(path: &Path, source: &[u8], store: &IndexStore) {
                 context: ".catch(() => {}) noop handler".to_string(),
             };
             store
+                .code_quality
                 .error_handling_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -960,6 +975,7 @@ fn scan_role_checks_ts(path: &Path, source: &[u8], store: &IndexStore) {
                     is_middleware: in_middleware,
                 };
                 store
+                    .security
                     .role_check_refs
                     .entry(path.to_path_buf())
                     .or_default()
@@ -982,6 +998,7 @@ fn scan_role_checks_ts(path: &Path, source: &[u8], store: &IndexStore) {
                 is_middleware: in_middleware,
             };
             store
+                .security
                 .role_check_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -1049,6 +1066,7 @@ fn scan_function_signatures_ts(
                     service_name: None,
                 };
                 store
+                    .code_quality
                     .function_signatures
                     .entry(path.to_path_buf())
                     .or_default()
@@ -1115,6 +1133,7 @@ fn scan_session_invalidation_ts(path: &Path, source: &[u8], store: &IndexStore) 
                 invalidation_type: inv_type,
             };
             store
+                .security
                 .session_invalidation_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -1180,6 +1199,7 @@ fn scan_sensitive_logging_ts(path: &Path, source: &[u8], store: &IndexStore) {
                     matched_text: trimmed.chars().take(120).collect(),
                 };
                 store
+                    .security
                     .sensitive_log_refs
                     .entry(path.to_path_buf())
                     .or_default()
@@ -1266,6 +1286,7 @@ fn scan_insecure_storage_ts(path: &Path, source: &[u8], store: &IndexStore) {
                 key_name,
             };
             store
+                .security
                 .insecure_storage_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -1280,6 +1301,7 @@ fn scan_insecure_storage_ts(path: &Path, source: &[u8], store: &IndexStore) {
                 key_name: "document.cookie".to_string(),
             };
             store
+                .security
                 .insecure_storage_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -1327,6 +1349,7 @@ fn scan_rate_limit_ts(path: &Path, source: &[u8], store: &IndexStore) {
                 limit_type: RateLimitType::Decorator,
             };
             store
+                .security
                 .rate_limit_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -1341,6 +1364,7 @@ fn scan_rate_limit_ts(path: &Path, source: &[u8], store: &IndexStore) {
                 limit_type: RateLimitType::Middleware,
             };
             store
+                .security
                 .rate_limit_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -1392,6 +1416,7 @@ fn scan_audit_log_ts(path: &Path, source: &[u8], store: &IndexStore) {
                 event_name,
             };
             store
+                .security
                 .audit_log_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -1504,6 +1529,7 @@ fn scan_test_bypass_ts(path: &Path, source: &[u8], store: &IndexStore) {
                 matched_value,
             };
             store
+                .security
                 .test_bypass_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -1571,6 +1597,7 @@ fn scan_token_refresh_ts(path: &Path, source: &[u8], store: &IndexStore) {
                 has_old_token_revocation: has_nearby_revocation,
             };
             store
+                .security
                 .token_refresh_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -1639,6 +1666,7 @@ fn scan_concurrency_safety_ts(path: &Path, source: &[u8], store: &IndexStore) {
                 safety_type,
             };
             store
+                .code_quality
                 .concurrency_safety_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -1765,11 +1793,11 @@ mod tests {
     fn parses_env_refs() {
         let store = parse_fixture("env_refs.ts");
         assert!(
-            store.env_refs.contains_key("DATABASE_URL"),
+            store.infra.env_refs.contains_key("DATABASE_URL"),
             "Should find DATABASE_URL env ref"
         );
         assert!(
-            store.env_refs.contains_key("API_KEY"),
+            store.infra.env_refs.contains_key("API_KEY"),
             "Should find API_KEY env ref"
         );
     }
@@ -1778,6 +1806,7 @@ mod tests {
     fn parses_env_refs_with_defaults() {
         let store = parse_fixture("env_refs.ts");
         let has_default = store
+            .infra
             .env_refs
             .get("PORT")
             .map(|port_refs| port_refs[0].has_default)
@@ -1790,6 +1819,7 @@ mod tests {
         let store = parse_fixture("middleware.ts");
         let path = fixture_path("middleware.ts");
         let scopes = store
+            .security
             .middleware_scopes
             .get(&path)
             .map(|s| s.value().clone())

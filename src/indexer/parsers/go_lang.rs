@@ -127,7 +127,8 @@ fn parse_routes(
             };
 
             store
-                .api_endpoints
+                .api
+                .endpoints
                 .entry(normalized)
                 .or_default()
                 .push(endpoint);
@@ -165,6 +166,7 @@ fn scan_env_refs(path: &Path, source: &[u8], store: &IndexStore) {
                     default_value: None,
                 };
                 store
+                    .infra
                     .env_refs
                     .entry(var.as_str().to_string())
                     .or_default()
@@ -183,6 +185,7 @@ fn scan_env_refs(path: &Path, source: &[u8], store: &IndexStore) {
                     default_value: None, // Go LookupEnv default is in surrounding code, not extractable here
                 };
                 store
+                    .infra
                     .env_refs
                     .entry(var.as_str().to_string())
                     .or_default()
@@ -234,6 +237,7 @@ fn scan_stub_indicators(path: &Path, source: &[u8], store: &IndexStore) {
                 };
 
                 store
+                    .code_quality
                     .stub_indicators
                     .entry(path.to_path_buf())
                     .or_default()
@@ -284,7 +288,8 @@ fn scan_event_patterns(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
-                    .event_producers
+                    .events
+                    .producers
                     .entry(topic.as_str().to_string())
                     .or_default()
                     .push(entry);
@@ -306,7 +311,8 @@ fn scan_event_patterns(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
-                    .event_consumers
+                    .events
+                    .consumers
                     .entry(topic.as_str().to_string())
                     .or_default()
                     .push(entry);
@@ -384,6 +390,7 @@ fn scan_db_writes_go(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .data
                     .db_write_refs
                     .entry(table_name)
                     .or_default()
@@ -417,6 +424,7 @@ fn scan_redis_patterns_go(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .data
                     .redis_key_refs
                     .entry(key.as_str().to_string())
                     .or_default()
@@ -434,6 +442,7 @@ fn scan_redis_patterns_go(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .data
                     .redis_key_refs
                     .entry(key.as_str().to_string())
                     .or_default()
@@ -451,6 +460,7 @@ fn scan_redis_patterns_go(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .data
                     .redis_key_refs
                     .entry(key.as_str().to_string())
                     .or_default()
@@ -477,6 +487,7 @@ fn scan_rls_context_go(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .security
                     .rls_context_refs
                     .entry(path.to_path_buf())
                     .or_default()
@@ -522,6 +533,7 @@ fn scan_hardcoded_creds_go(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .security
                     .hardcoded_creds
                     .entry(path.to_path_buf())
                     .or_default()
@@ -580,6 +592,7 @@ fn scan_sql_query_refs_go(path: &Path, source: &[u8], store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .data
                     .sql_query_refs
                     .entry(table_name)
                     .or_default()
@@ -654,6 +667,7 @@ fn scan_db_pool_refs_go(path: &Path, source: &[u8], store: &IndexStore) {
                 line: line_num + 1,
             };
             store
+                .data
                 .db_pool_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -699,6 +713,7 @@ fn scan_secondary_auth_go(path: &Path, source: &[u8], store: &IndexStore) {
                 near_endpoint: None,
             };
             store
+                .security
                 .secondary_auth_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -735,6 +750,7 @@ fn scan_error_handling_go(path: &Path, source: &[u8], store: &IndexStore) {
                 context: "ignored error with _ assignment".to_string(),
             };
             store
+                .code_quality
                 .error_handling_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -749,6 +765,7 @@ fn scan_error_handling_go(path: &Path, source: &[u8], store: &IndexStore) {
                 context: "empty if err != nil block".to_string(),
             };
             store
+                .code_quality
                 .error_handling_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -796,6 +813,7 @@ fn scan_role_checks_go(path: &Path, source: &[u8], store: &IndexStore) {
                     is_middleware: in_middleware,
                 };
                 store
+                    .security
                     .role_check_refs
                     .entry(path.to_path_buf())
                     .or_default()
@@ -812,6 +830,7 @@ fn scan_role_checks_go(path: &Path, source: &[u8], store: &IndexStore) {
                 is_middleware: in_middleware,
             };
             store
+                .security
                 .role_check_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -875,6 +894,7 @@ fn scan_function_signatures_go(
                     service_name: None,
                 };
                 store
+                    .code_quality
                     .function_signatures
                     .entry(path.to_path_buf())
                     .or_default()
@@ -940,6 +960,7 @@ fn scan_session_invalidation_go(path: &Path, source: &[u8], store: &IndexStore) 
                 invalidation_type: inv_type,
             };
             store
+                .security
                 .session_invalidation_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -1002,6 +1023,7 @@ fn scan_sensitive_logging_go(path: &Path, source: &[u8], store: &IndexStore) {
                     matched_text: trimmed.chars().take(120).collect(),
                 };
                 store
+                    .security
                     .sensitive_log_refs
                     .entry(path.to_path_buf())
                     .or_default()
@@ -1047,6 +1069,7 @@ fn scan_rate_limit_go(path: &Path, source: &[u8], store: &IndexStore) {
                 limit_type,
             };
             store
+                .security
                 .rate_limit_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -1085,6 +1108,7 @@ fn scan_audit_log_go(path: &Path, source: &[u8], store: &IndexStore) {
                 event_name: None,
             };
             store
+                .security
                 .audit_log_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -1180,6 +1204,7 @@ fn scan_test_bypass_go(path: &Path, source: &[u8], store: &IndexStore) {
                 matched_value,
             };
             store
+                .security
                 .test_bypass_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -1243,6 +1268,7 @@ fn scan_token_refresh_go(path: &Path, source: &[u8], store: &IndexStore) {
                 has_old_token_revocation: has_nearby_revocation,
             };
             store
+                .security
                 .token_refresh_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -1317,6 +1343,7 @@ fn scan_concurrency_safety_go(path: &Path, source: &[u8], store: &IndexStore) {
                 safety_type,
             };
             store
+                .code_quality
                 .concurrency_safety_refs
                 .entry(path.to_path_buf())
                 .or_default()
@@ -1464,6 +1491,7 @@ mod tests {
     fn detects_go_db_pool_refs() {
         let store = parse_fixture("dual_pool.go");
         let all_pools: Vec<DbPoolRef> = store
+            .data
             .db_pool_refs
             .iter()
             .flat_map(|entry| entry.value().clone())

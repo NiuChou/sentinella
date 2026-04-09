@@ -204,7 +204,7 @@ database_security:
     }
 
     fn insert_table(store: &IndexStore, name: &str, columns: Vec<&str>) {
-        store.db_tables.insert(
+        store.data.db_tables.insert(
             name.to_string(),
             TableInfo {
                 schema_name: None,
@@ -283,7 +283,7 @@ database_security:
         let store2 = Arc::new(IndexStore::default());
         for i in 0..35 {
             let name = format!("table_{}", i);
-            store2.db_tables.insert(
+            store2.data.db_tables.insert(
                 name.clone(),
                 TableInfo {
                     schema_name: None,

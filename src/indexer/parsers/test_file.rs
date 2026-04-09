@@ -70,7 +70,10 @@ pub fn parse_test_file(path: &Path, source: &[u8], store: &IndexStore) -> Result
         has_assert,
     };
 
-    store.test_files.insert(path.to_path_buf(), info);
+    store
+        .code_quality
+        .test_files
+        .insert(path.to_path_buf(), info);
     Ok(())
 }
 
@@ -306,7 +309,11 @@ def test_create_order():
 "#;
         parse_test_file(&path, source, &store).unwrap();
 
-        let info = store.test_files.get(&path).expect("test file entry");
+        let info = store
+            .code_quality
+            .test_files
+            .get(&path)
+            .expect("test file entry");
         assert!(info.tables_tested.contains(&"orders".to_string()));
         assert!(info.has_write);
         assert!(info.has_read);

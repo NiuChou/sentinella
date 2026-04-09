@@ -96,7 +96,7 @@ fn check_ghost_tables(ctx: &ScanContext, di_config: &DataIsolationConfig) -> Vec
     let mut findings = Vec::new();
     let store = ctx.index;
 
-    for entry in store.db_tables.iter() {
+    for entry in store.data.db_tables.iter() {
         let table_name = &entry.value().table_name;
 
         if is_excluded_table(table_name, &di_config.exclude_tables) {
@@ -104,6 +104,7 @@ fn check_ghost_tables(ctx: &ScanContext, di_config: &DataIsolationConfig) -> Vec
         }
 
         let has_writes = store
+            .data
             .db_write_refs
             .get(table_name)
             .map(|v| !v.is_empty())
@@ -140,6 +141,7 @@ fn check_rls_activation(ctx: &ScanContext, di_config: &DataIsolationConfig) -> V
 
     // Collect tables that have RLS policies with session variables
     let rls_tables_with_session_var: Vec<String> = store
+        .security
         .rls_policies
         .iter()
         .filter(|entry| entry.value().iter().any(|p| p.session_var.is_some()))
@@ -152,7 +154,7 @@ fn check_rls_activation(ctx: &ScanContext, di_config: &DataIsolationConfig) -> V
 
     // Check if ANY application code sets the RLS session variable
     let expected_var = &di_config.rls_session_var;
-    let rls_context_found = store.rls_context_refs.iter().any(|entry| {
+    let rls_context_found = store.security.rls_context_refs.iter().any(|entry| {
         entry
             .value()
             .iter()
@@ -166,6 +168,7 @@ fn check_rls_activation(ctx: &ScanContext, di_config: &DataIsolationConfig) -> V
             }
 
             let session_var = store
+                .security
                 .rls_policies
                 .get(table_key)
                 .and_then(|policies| policies.value().iter().find_map(|p| p.session_var.clone()))
@@ -198,7 +201,7 @@ fn check_force_rls(ctx: &ScanContext, di_config: &DataIsolationConfig) -> Vec<Fi
     let mut findings = Vec::new();
     let store = ctx.index;
 
-    for entry in store.db_tables.iter() {
+    for entry in store.data.db_tables.iter() {
         let table_info = entry.value();
 
         if !table_info.has_rls {
@@ -211,6 +214,7 @@ fn check_force_rls(ctx: &ScanContext, di_config: &DataIsolationConfig) -> Vec<Fi
 
         let key = entry.key().clone();
         let has_force = store
+            .security
             .rls_policies
             .get(&key)
             .map(|policies| policies.value().iter().any(|p| p.has_force))
@@ -247,6 +251,7 @@ fn check_missing_ownership(ctx: &ScanContext, di_config: &DataIsolationConfig) -
 
     // Collect user-scoped tables (has_rls or has app_role)
     let user_scoped_tables: Vec<String> = store
+        .data
         .db_tables
         .iter()
         .filter(|entry| entry.value().has_rls || entry.value().app_role.is_some())
@@ -271,7 +276,7 @@ fn check_missing_ownership(ctx: &ScanContext, di_config: &DataIsolationConfig) -
         .map(|ep| ep.file.clone())
         .collect();
 
-    for entry in store.sql_query_refs.iter() {
+    for entry in store.data.sql_query_refs.iter() {
         let table_name = entry.key();
         if !user_scoped_tables.contains(table_name) {
             continue;
@@ -327,6 +332,7 @@ fn check_idor_prone_gets(ctx: &ScanContext, di_config: &DataIsolationConfig) -> 
     let store = ctx.index;
 
     let user_scoped_tables: Vec<String> = store
+        .data
         .db_tables
         .iter()
         .filter(|entry| entry.value().has_rls || entry.value().app_role.is_some())
@@ -339,7 +345,7 @@ fn check_idor_prone_gets(ctx: &ScanContext, di_config: &DataIsolationConfig) -> 
 
     use crate::indexer::types::SqlQueryOp;
 
-    for entry in store.sql_query_refs.iter() {
+    for entry in store.data.sql_query_refs.iter() {
         let table_name = entry.key();
         if !user_scoped_tables.contains(table_name) {
             continue;
@@ -386,7 +392,7 @@ fn check_cache_only(ctx: &ScanContext, di_config: &DataIsolationConfig) -> Vec<F
 
     use crate::indexer::types::RedisOp;
 
-    for entry in store.redis_key_refs.iter() {
+    for entry in store.data.redis_key_refs.iter() {
         let key_pattern = entry.key();
 
         // Check exclude patterns
@@ -416,6 +422,7 @@ fn check_cache_only(ctx: &ScanContext, di_config: &DataIsolationConfig) -> Vec<F
         let write_files: Vec<_> = writes_with_ttl.iter().map(|r| &r.file).collect();
         let has_db_write_in_same_file = write_files.iter().any(|file| {
             store
+                .data
                 .db_write_refs
                 .iter()
                 .any(|db_entry| db_entry.value().iter().any(|w| &w.file == *file))
@@ -453,7 +460,7 @@ fn check_hardcoded_creds(ctx: &ScanContext) -> Vec<Finding> {
     let mut findings = Vec::new();
     let store = ctx.index;
 
-    for entry in store.hardcoded_creds.iter() {
+    for entry in store.security.hardcoded_creds.iter() {
         for cred in entry.value().iter() {
             findings.push(
                 Finding::new(
@@ -508,7 +515,8 @@ fn is_user_facing_file(file: &std::path::Path, store: &crate::indexer::store::In
 
     // If the file defines API endpoints, it's user-facing
     let defines_routes = store
-        .api_endpoints
+        .api
+        .endpoints
         .iter()
         .any(|entry| entry.value().iter().any(|ep| ep.file == file));
 
@@ -530,7 +538,7 @@ fn check_dual_pool(ctx: &ScanContext, config: &DataIsolationConfig) -> Vec<Findi
     let store = ctx.index;
     let mut findings = Vec::new();
 
-    for entry in store.db_pool_refs.iter() {
+    for entry in store.data.db_pool_refs.iter() {
         let file = entry.key();
         for pool_ref in entry.value().iter() {
             if !is_admin_pool(pool_ref, config) {
@@ -582,13 +590,13 @@ fn is_excluded_redis_key(key_pattern: &str, exclude_patterns: &[String]) -> bool
 fn check_redis_enumeration(ctx: &ScanContext, config: &DataIsolationConfig) -> Vec<Finding> {
     let store = ctx.index;
 
-    if store.redis_key_refs.is_empty() {
+    if store.data.redis_key_refs.is_empty() {
         return Vec::new();
     }
 
     let mut findings = Vec::new();
 
-    for entry in store.redis_key_refs.iter() {
+    for entry in store.data.redis_key_refs.iter() {
         let key_pattern = entry.key();
 
         if is_excluded_redis_key(key_pattern, &config.exclude_redis_patterns) {
@@ -661,7 +669,7 @@ fn build_table_ownership(
     }
 
     // 2. Infer from db_write_refs: file path -> service directory -> table ownership
-    for entry in store.db_write_refs.iter() {
+    for entry in store.data.db_write_refs.iter() {
         let table_name = entry.key().clone();
         if ownership.contains_key(&table_name) {
             continue;
@@ -701,7 +709,7 @@ fn check_cross_service_access(ctx: &ScanContext, config: &DataIsolationConfig) -
     let ownership = build_table_ownership(config, store);
     let mut findings = Vec::new();
 
-    for entry in store.sql_query_refs.iter() {
+    for entry in store.data.sql_query_refs.iter() {
         let table_name = entry.key();
 
         let owning_service = match ownership.get(table_name.as_str()) {
@@ -997,7 +1005,7 @@ mod tests {
         let store = IndexStore::new();
 
         // Table exists in migration but no writes
-        store.db_tables.insert(
+        store.data.db_tables.insert(
             "factor_results".into(),
             TableInfo {
                 schema_name: None,
@@ -1031,7 +1039,7 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.db_tables.insert(
+        store.data.db_tables.insert(
             "users".into(),
             TableInfo {
                 schema_name: None,
@@ -1042,7 +1050,7 @@ mod tests {
             },
         );
 
-        store.db_write_refs.insert(
+        store.data.db_write_refs.insert(
             "users".into(),
             vec![DbWriteRef {
                 table_name: "users".into(),
@@ -1074,7 +1082,7 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.db_tables.insert(
+        store.data.db_tables.insert(
             "sessions".into(),
             TableInfo {
                 schema_name: None,
@@ -1085,7 +1093,7 @@ mod tests {
             },
         );
 
-        store.rls_policies.insert(
+        store.security.rls_policies.insert(
             "sessions".into(),
             vec![RlsPolicyInfo {
                 table_name: "sessions".into(),
@@ -1119,7 +1127,7 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.db_tables.insert(
+        store.data.db_tables.insert(
             "audit_logs".into(),
             TableInfo {
                 schema_name: None,
@@ -1155,7 +1163,7 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.hardcoded_creds.insert(
+        store.security.hardcoded_creds.insert(
             PathBuf::from("config.go"),
             vec![HardcodedCredential {
                 key_name: "MinioAccessKey".into(),
@@ -1189,7 +1197,7 @@ mod tests {
         config.data_isolation.exclude_tables = vec!["_prisma_migrations".into()];
         let store = IndexStore::new();
 
-        store.db_tables.insert(
+        store.data.db_tables.insert(
             "_prisma_migrations".into(),
             TableInfo {
                 schema_name: None,
@@ -1238,7 +1246,7 @@ mod tests {
         let route_file = PathBuf::from("src/routes/users.ts");
 
         // File defines an API endpoint -> user-facing
-        store.api_endpoints.insert(
+        store.api.endpoints.insert(
             "/users".into(),
             vec![ApiEndpoint {
                 method: HttpMethod::Get,
@@ -1250,7 +1258,7 @@ mod tests {
         );
 
         // Admin pool ref in that user-facing file
-        store.db_pool_refs.insert(
+        store.data.db_pool_refs.insert(
             route_file.clone(),
             vec![DbPoolRef {
                 pool_name: "adminPool".into(),
@@ -1284,7 +1292,7 @@ mod tests {
         let store = IndexStore::new();
         let worker_file = PathBuf::from("src/worker/cleanup.ts");
 
-        store.db_pool_refs.insert(
+        store.data.db_pool_refs.insert(
             worker_file.clone(),
             vec![DbPoolRef {
                 pool_name: "adminPool".into(),
@@ -1318,7 +1326,7 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.redis_key_refs.insert(
+        store.data.redis_key_refs.insert(
             "session:state:{id}".into(),
             vec![RedisKeyRef {
                 key_pattern: "session:state:{id}".into(),
@@ -1352,7 +1360,7 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.redis_key_refs.insert(
+        store.data.redis_key_refs.insert(
             "user:{uid}:session:{sid}".into(),
             vec![RedisKeyRef {
                 key_pattern: "user:{uid}:session:{sid}".into(),
@@ -1402,7 +1410,7 @@ mod tests {
         let store = IndexStore::new();
 
         // Service "users" queries table "invoices" owned by "billing"
-        store.sql_query_refs.insert(
+        store.data.sql_query_refs.insert(
             "invoices".into(),
             vec![SqlQueryRef {
                 table_name: "invoices".into(),
@@ -1444,7 +1452,7 @@ mod tests {
         let store = IndexStore::new();
 
         // Service "billing" queries its own table "invoices"
-        store.sql_query_refs.insert(
+        store.data.sql_query_refs.insert(
             "invoices".into(),
             vec![SqlQueryRef {
                 table_name: "invoices".into(),
@@ -1478,7 +1486,7 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.status_literal_refs.insert(
+        store.data.status_literal_refs.insert(
             "status".into(),
             vec![
                 StatusLiteralRef {
@@ -1518,7 +1526,7 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.status_literal_refs.insert(
+        store.data.status_literal_refs.insert(
             "status".into(),
             vec![
                 StatusLiteralRef {
@@ -1558,7 +1566,7 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.status_literal_refs.insert(
+        store.data.status_literal_refs.insert(
             "status".into(),
             vec![
                 StatusLiteralRef {

@@ -93,6 +93,7 @@ fn parse_k8s_configmap(path: &Path, doc: &serde_yaml::Value, store: &IndexStore)
                     source_type: EnvSourceType::K8sConfigMap,
                 };
                 store
+                    .infra
                     .env_configs
                     .entry(var_name.to_string())
                     .or_default()
@@ -114,6 +115,7 @@ fn parse_k8s_secret(path: &Path, doc: &serde_yaml::Value, store: &IndexStore) {
                         source_type: EnvSourceType::K8sSecret,
                     };
                     store
+                        .infra
                         .env_configs
                         .entry(var_name.to_string())
                         .or_default()
@@ -155,7 +157,12 @@ fn parse_referenced_env_file(yaml_path: &Path, env_path_str: &str, store: &Index
                     source_file: env_path.clone(),
                     source_type: EnvSourceType::DotEnv,
                 };
-                store.env_configs.entry(var_name).or_default().push(config);
+                store
+                    .infra
+                    .env_configs
+                    .entry(var_name)
+                    .or_default()
+                    .push(config);
             }
         }
     }
@@ -203,6 +210,7 @@ fn parse_docker_compose_services(path: &Path, services: &serde_yaml::Value, stor
                         source_type: EnvSourceType::DockerCompose,
                     };
                     store
+                        .infra
                         .env_configs
                         .entry(var_name.to_string())
                         .or_default()
@@ -226,7 +234,12 @@ fn parse_docker_compose_services(path: &Path, services: &serde_yaml::Value, stor
                             source_file: path.to_path_buf(),
                             source_type: EnvSourceType::DockerCompose,
                         };
-                        store.env_configs.entry(var_name).or_default().push(config);
+                        store
+                            .infra
+                            .env_configs
+                            .entry(var_name)
+                            .or_default()
+                            .push(config);
                     }
                 }
             }

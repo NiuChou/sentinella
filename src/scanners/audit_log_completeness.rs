@@ -209,7 +209,7 @@ layers: {}
 
         let file = PathBuf::from("routes/auth.ts");
 
-        store.api_endpoints.insert(
+        store.api.endpoints.insert(
             "/auth/login".into(),
             vec![ApiEndpoint {
                 method: HttpMethod::Post,
@@ -240,7 +240,7 @@ layers: {}
 
         let file = PathBuf::from("routes/auth.ts");
 
-        store.api_endpoints.insert(
+        store.api.endpoints.insert(
             "/auth/login".into(),
             vec![ApiEndpoint {
                 method: HttpMethod::Post,
@@ -251,7 +251,7 @@ layers: {}
             }],
         );
 
-        store.audit_log_refs.insert(
+        store.security.audit_log_refs.insert(
             file.clone(),
             vec![AuditLogRef {
                 file: file.clone(),
@@ -282,7 +282,7 @@ layers: {}
         let role_file = PathBuf::from("middleware/rbac.ts");
 
         // Auth endpoint (has audit)
-        store.api_endpoints.insert(
+        store.api.endpoints.insert(
             "/auth/login".into(),
             vec![ApiEndpoint {
                 method: HttpMethod::Post,
@@ -292,7 +292,7 @@ layers: {}
                 framework: Framework::Express,
             }],
         );
-        store.audit_log_refs.insert(
+        store.security.audit_log_refs.insert(
             auth_file.clone(),
             vec![AuditLogRef {
                 file: auth_file.clone(),
@@ -303,7 +303,8 @@ layers: {}
 
         // DELETE endpoint (no audit)
         store
-            .api_endpoints
+            .api
+            .endpoints
             .entry("/users/:id".into())
             .or_default()
             .push(ApiEndpoint {
@@ -315,7 +316,7 @@ layers: {}
             });
 
         // Session invalidation file (no audit)
-        store.session_invalidation_refs.insert(
+        store.security.session_invalidation_refs.insert(
             session_file.clone(),
             vec![SessionInvalidationRef {
                 file: session_file.clone(),
@@ -325,7 +326,7 @@ layers: {}
         );
 
         // Role check file (has audit)
-        store.role_check_refs.insert(
+        store.security.role_check_refs.insert(
             role_file.clone(),
             vec![RoleCheckRef {
                 file: role_file.clone(),
@@ -335,7 +336,7 @@ layers: {}
                 is_middleware: true,
             }],
         );
-        store.audit_log_refs.insert(
+        store.security.audit_log_refs.insert(
             role_file.clone(),
             vec![AuditLogRef {
                 file: role_file.clone(),
@@ -363,7 +364,7 @@ layers: {}
 
         let file = PathBuf::from("routes/resources.ts");
 
-        store.api_endpoints.insert(
+        store.api.endpoints.insert(
             "/resources/:id".into(),
             vec![ApiEndpoint {
                 method: HttpMethod::Delete,
@@ -394,7 +395,7 @@ layers: {}
         let put_file = PathBuf::from("routes/settings.ts");
         let patch_file = PathBuf::from("routes/profile.ts");
 
-        store.api_endpoints.insert(
+        store.api.endpoints.insert(
             "/settings".into(),
             vec![ApiEndpoint {
                 method: HttpMethod::Put,
@@ -406,7 +407,8 @@ layers: {}
         );
 
         store
-            .api_endpoints
+            .api
+            .endpoints
             .entry("/profile".into())
             .or_default()
             .push(ApiEndpoint {
@@ -440,7 +442,7 @@ layers: {}
         // Same file is both an auth endpoint and has session invalidation
         let file = PathBuf::from("routes/auth.ts");
 
-        store.api_endpoints.insert(
+        store.api.endpoints.insert(
             "/auth/logout".into(),
             vec![ApiEndpoint {
                 method: HttpMethod::Post,
@@ -451,7 +453,7 @@ layers: {}
             }],
         );
 
-        store.session_invalidation_refs.insert(
+        store.security.session_invalidation_refs.insert(
             file.clone(),
             vec![SessionInvalidationRef {
                 file: file.clone(),

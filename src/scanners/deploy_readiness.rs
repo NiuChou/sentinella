@@ -27,7 +27,7 @@ impl Scanner for DeployReadiness {
         let mut total_checks: u32 = 0;
         let mut checks_passed: u32 = 0;
 
-        for entry in store.dockerfile_checks.iter() {
+        for entry in store.infra.dockerfile_checks.iter() {
             let check = entry.value();
             let service = &check.service;
 
@@ -127,7 +127,7 @@ impl Scanner for DeployReadiness {
             format!(
                 "{} issue(s) found across {} service(s). Score: {}%.",
                 findings.len(),
-                store.dockerfile_checks.len(),
+                store.infra.dockerfile_checks.len(),
                 score
             )
         };
@@ -186,7 +186,7 @@ mod tests {
     fn test_all_checks_pass() {
         let config = make_config(true, true, true);
         let store = IndexStore::new();
-        store.dockerfile_checks.insert(
+        store.infra.dockerfile_checks.insert(
             "web".into(),
             DockerfileCheck {
                 service: "web".into(),
@@ -212,7 +212,7 @@ mod tests {
     fn test_missing_healthcheck_is_critical() {
         let config = make_config(true, false, false);
         let store = IndexStore::new();
-        store.dockerfile_checks.insert(
+        store.infra.dockerfile_checks.insert(
             "api".into(),
             DockerfileCheck {
                 service: "api".into(),
@@ -259,7 +259,7 @@ mod tests {
     fn test_missing_user_is_warning() {
         let config = make_config(false, false, false);
         let store = IndexStore::new();
-        store.dockerfile_checks.insert(
+        store.infra.dockerfile_checks.insert(
             "worker".into(),
             DockerfileCheck {
                 service: "worker".into(),
@@ -286,7 +286,7 @@ mod tests {
         let config = make_config(true, true, true);
         let store = IndexStore::new();
 
-        store.dockerfile_checks.insert(
+        store.infra.dockerfile_checks.insert(
             "api".into(),
             DockerfileCheck {
                 service: "api".into(),
@@ -296,7 +296,7 @@ mod tests {
                 has_dockerignore: false,
             },
         );
-        store.dockerfile_checks.insert(
+        store.infra.dockerfile_checks.insert(
             "web".into(),
             DockerfileCheck {
                 service: "web".into(),

@@ -189,7 +189,7 @@ layers: {}
     #[test]
     fn lookup_without_unique() {
         let store = IndexStore::new();
-        store.column_lookup_refs.insert(
+        store.data.column_lookup_refs.insert(
             "users.wecom_userid".to_string(),
             vec![make_lookup("users", "wecom_userid", "src/repo/user.ts", 42)],
         );
@@ -212,11 +212,11 @@ layers: {}
     #[test]
     fn lookup_with_unique_constraint() {
         let store = IndexStore::new();
-        store.column_lookup_refs.insert(
+        store.data.column_lookup_refs.insert(
             "users.github_id".to_string(),
             vec![make_lookup("users", "github_id", "src/repo/user.ts", 30)],
         );
-        store.unique_constraint_refs.insert(
+        store.data.unique_constraint_refs.insert(
             "users.github_id".to_string(),
             vec![make_unique(
                 "users",
@@ -244,7 +244,7 @@ layers: {}
 
         // Add lookups for common columns that should be skipped
         for col in &["id", "created_at", "status", "email", "type", "name"] {
-            store.column_lookup_refs.insert(
+            store.data.column_lookup_refs.insert(
                 format!("users.{}", col),
                 vec![make_lookup("users", col, "src/repo/user.ts", 10)],
             );
@@ -269,11 +269,11 @@ layers: {}
         let store = IndexStore::new();
 
         // Constrained lookup
-        store.column_lookup_refs.insert(
+        store.data.column_lookup_refs.insert(
             "users.github_id".to_string(),
             vec![make_lookup("users", "github_id", "src/repo/user.ts", 30)],
         );
-        store.unique_constraint_refs.insert(
+        store.data.unique_constraint_refs.insert(
             "users.github_id".to_string(),
             vec![make_unique(
                 "users",
@@ -284,7 +284,7 @@ layers: {}
         );
 
         // Unconstrained lookup
-        store.column_lookup_refs.insert(
+        store.data.column_lookup_refs.insert(
             "users.oauth_id".to_string(),
             vec![make_lookup("users", "oauth_id", "src/repo/oauth.ts", 15)],
         );
@@ -306,11 +306,11 @@ layers: {}
     #[test]
     fn case_insensitive_matching() {
         let store = IndexStore::new();
-        store.column_lookup_refs.insert(
+        store.data.column_lookup_refs.insert(
             "Users.WecomUserID".to_string(),
             vec![make_lookup("Users", "WecomUserID", "src/repo/user.ts", 42)],
         );
-        store.unique_constraint_refs.insert(
+        store.data.unique_constraint_refs.insert(
             "users.wecomuserid".to_string(),
             vec![make_unique(
                 "users",

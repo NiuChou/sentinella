@@ -144,7 +144,7 @@ layers: {}
         let store = IndexStore::new();
         let file = PathBuf::from("src/auth.ts");
 
-        store.sensitive_log_refs.insert(
+        store.security.sensitive_log_refs.insert(
             file.clone(),
             vec![make_ref(
                 "src/auth.ts",
@@ -172,7 +172,7 @@ layers: {}
         let store = IndexStore::new();
         let file = PathBuf::from("src/api.ts");
 
-        store.sensitive_log_refs.insert(
+        store.security.sensitive_log_refs.insert(
             file.clone(),
             vec![make_ref(
                 "src/api.ts",

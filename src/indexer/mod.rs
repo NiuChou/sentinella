@@ -34,7 +34,7 @@ pub fn build_index_multi(
     parse_test_files(&entries, &store);
 
     // Migrate middleware_scopes to evidence_store
-    for entry in store.middleware_scopes.iter() {
+    for entry in store.security.middleware_scopes.iter() {
         for scope in entry.value().iter() {
             let evidence = crate::evidence::from_middleware_scope(scope);
             store.evidence_store.add(evidence);

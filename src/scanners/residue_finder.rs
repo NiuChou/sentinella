@@ -168,7 +168,7 @@ layers: {}
             },
         );
 
-        store.stub_indicators.insert(
+        store.code_quality.stub_indicators.insert(
             file_a.clone(),
             vec![
                 StubIndicator {
@@ -186,7 +186,7 @@ layers: {}
             ],
         );
 
-        store.stub_indicators.insert(
+        store.code_quality.stub_indicators.insert(
             file_b.clone(),
             vec![StubIndicator {
                 file: file_b.clone(),

@@ -50,12 +50,12 @@ impl Scanner for EnvConfigDrift {
         let prefix_strs: Vec<&str> = config_prefixes.iter().map(|s| s.as_str()).collect();
 
         let ref_vars = collect_filtered_var_names_with_prefixes(
-            &ctx.index.env_refs,
+            &ctx.index.infra.env_refs,
             exclude_paths,
             exclude_vars,
             &prefix_strs,
         );
-        let config_vars = collect_var_names(&ctx.index.env_configs);
+        let config_vars = collect_var_names(&ctx.index.infra.env_configs);
 
         if ref_vars.is_empty() && config_vars.is_empty() {
             return ScanResult {
@@ -69,7 +69,7 @@ impl Scanner for EnvConfigDrift {
         // Missing: referenced in code but not configured
         for var in &ref_vars {
             if !config_vars.contains(var) {
-                let entries = ctx.index.env_refs.get(var);
+                let entries = ctx.index.infra.env_refs.get(var);
                 if let Some(entries) = entries {
                     for entry in entries.value() {
                         if is_excluded_path(&entry.file, exclude_paths) {
@@ -99,7 +99,7 @@ impl Scanner for EnvConfigDrift {
         // Orphan: configured but never referenced
         for var in &config_vars {
             if !ref_vars.contains(var) {
-                let entries = ctx.index.env_configs.get(var);
+                let entries = ctx.index.infra.env_configs.get(var);
                 if let Some(entries) = entries {
                     for entry in entries.value() {
                         findings.push(
@@ -263,7 +263,7 @@ fn check_unsafe_defaults(
     exclude_vars: &[String],
     var_prefixes: &[&str],
 ) {
-    for entry in ctx.index.env_refs.iter() {
+    for entry in ctx.index.infra.env_refs.iter() {
         for env_ref in entry.value() {
             if !env_ref.has_default {
                 continue;
@@ -482,7 +482,7 @@ mod tests {
         };
         let store = IndexStore::new();
 
-        store.env_refs.insert(
+        store.infra.env_refs.insert(
             "DATABASE_URL".to_string(),
             vec![crate::indexer::types::EnvRef {
                 var_name: "DATABASE_URL".to_string(),
@@ -492,7 +492,7 @@ mod tests {
                 default_value: Some("http://localhost:5432".to_string()),
             }],
         );
-        store.env_configs.insert(
+        store.infra.env_configs.insert(
             "DATABASE_URL".to_string(),
             vec![crate::indexer::types::EnvConfig {
                 var_name: "DATABASE_URL".to_string(),

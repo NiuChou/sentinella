@@ -242,7 +242,7 @@ layers: {}
     #[test]
     fn warns_on_otp_redis_read_without_delete() {
         let store = IndexStore::new();
-        store.redis_key_refs.insert(
+        store.data.redis_key_refs.insert(
             "otp:user:*".to_string(),
             vec![make_redis_ref(
                 "src/auth/verify_otp.ts",
@@ -272,7 +272,7 @@ layers: {}
     #[test]
     fn safe_when_otp_redis_read_and_delete_present() {
         let store = IndexStore::new();
-        store.redis_key_refs.insert(
+        store.data.redis_key_refs.insert(
             "otp:user:*".to_string(),
             vec![
                 make_redis_ref("src/auth/verify_otp.ts", 10, RedisOp::Read, "otp:user:*"),
@@ -299,7 +299,7 @@ layers: {}
     #[test]
     fn ignores_non_otp_redis_keys() {
         let store = IndexStore::new();
-        store.redis_key_refs.insert(
+        store.data.redis_key_refs.insert(
             "session:user:*".to_string(),
             vec![make_redis_ref(
                 "src/auth/session.ts",
@@ -380,7 +380,7 @@ layers: {}
         let store = IndexStore::new();
 
         // File 1: OTP read without delete (warning)
-        store.redis_key_refs.insert(
+        store.data.redis_key_refs.insert(
             "otp:verify:*".to_string(),
             vec![make_redis_ref(
                 "src/auth/verify.ts",
@@ -391,7 +391,7 @@ layers: {}
         );
 
         // File 2: 2FA read with delete (safe)
-        store.redis_key_refs.insert(
+        store.data.redis_key_refs.insert(
             "2fa:session:*".to_string(),
             vec![
                 make_redis_ref("src/auth/two_factor.ts", 20, RedisOp::Read, "2fa:session:*"),

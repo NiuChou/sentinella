@@ -123,7 +123,8 @@ fn scan_api_routes(path: &Path, source: &str, store: &IndexStore) {
                     };
 
                     store
-                        .api_endpoints
+                        .api
+                        .endpoints
                         .entry(normalized)
                         .or_default()
                         .push(endpoint);
@@ -147,7 +148,8 @@ fn scan_api_routes(path: &Path, source: &str, store: &IndexStore) {
                     };
 
                     store
-                        .api_endpoints
+                        .api
+                        .endpoints
                         .entry(normalized)
                         .or_default()
                         .push(endpoint);
@@ -171,7 +173,8 @@ fn scan_api_routes(path: &Path, source: &str, store: &IndexStore) {
                     };
 
                     store
-                        .api_endpoints
+                        .api
+                        .endpoints
                         .entry(normalized)
                         .or_default()
                         .push(endpoint);
@@ -227,6 +230,7 @@ fn scan_env_refs(path: &Path, source: &str, store: &IndexStore) {
                     default_value: None,
                 };
                 store
+                    .infra
                     .env_refs
                     .entry(var.as_str().to_string())
                     .or_default()
@@ -244,6 +248,7 @@ fn scan_env_refs(path: &Path, source: &str, store: &IndexStore) {
                     default_value: None,
                 };
                 store
+                    .infra
                     .env_refs
                     .entry(var.as_str().to_string())
                     .or_default()
@@ -261,6 +266,7 @@ fn scan_env_refs(path: &Path, source: &str, store: &IndexStore) {
                     default_value: None,
                 };
                 store
+                    .infra
                     .env_refs
                     .entry(var.as_str().to_string())
                     .or_default()
@@ -278,6 +284,7 @@ fn scan_env_refs(path: &Path, source: &str, store: &IndexStore) {
                     default_value: None,
                 };
                 store
+                    .infra
                     .env_refs
                     .entry(var.as_str().to_string())
                     .or_default()
@@ -414,6 +421,7 @@ fn scan_db_writes(path: &Path, source: &str, store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .data
                     .db_write_refs
                     .entry(table_name)
                     .or_default()
@@ -431,6 +439,7 @@ fn scan_db_writes(path: &Path, source: &str, store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .data
                     .db_write_refs
                     .entry(table_name)
                     .or_default()
@@ -484,6 +493,7 @@ fn scan_hardcoded_creds(path: &Path, source: &str, store: &IndexStore) {
                     line: line_num + 1,
                 };
                 store
+                    .security
                     .hardcoded_creds
                     .entry(path.to_path_buf())
                     .or_default()
@@ -546,15 +556,15 @@ mod tests {
     fn parses_env_refs() {
         let store = parse_fixture("routes.rs");
         assert!(
-            store.env_refs.contains_key("DATABASE_URL"),
+            store.infra.env_refs.contains_key("DATABASE_URL"),
             "Should find DATABASE_URL env ref"
         );
         assert!(
-            store.env_refs.contains_key("RUST_LOG"),
+            store.infra.env_refs.contains_key("RUST_LOG"),
             "Should find RUST_LOG env ref"
         );
         assert!(
-            store.env_refs.contains_key("CARGO_MANIFEST_DIR"),
+            store.infra.env_refs.contains_key("CARGO_MANIFEST_DIR"),
             "Should find CARGO_MANIFEST_DIR compile-time env ref"
         );
     }

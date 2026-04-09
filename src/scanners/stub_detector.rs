@@ -169,7 +169,7 @@ fn has_matching_extension(path: &str, suffix_pattern: &str) -> bool {
 
 /// Check whether the index has any API calls originating from this file.
 fn file_has_api_calls(ctx: &ScanContext, file: &PathBuf) -> bool {
-    for entry in ctx.index.api_calls.iter() {
+    for entry in ctx.index.api.calls.iter() {
         for call in entry.value() {
             if call.file == *file {
                 return true;
@@ -182,6 +182,7 @@ fn file_has_api_calls(ctx: &ScanContext, file: &PathBuf) -> bool {
 /// Check whether the index has stub indicators for this file.
 fn file_has_stub_indicators(ctx: &ScanContext, file: &std::path::Path) -> bool {
     ctx.index
+        .code_quality
         .stub_indicators
         .get(file)
         .map(|indicators| {
@@ -227,7 +228,7 @@ layers:
         let store = IndexStore::new();
         let file = PathBuf::from("src/hooks/useData.ts");
 
-        store.stub_indicators.insert(
+        store.code_quality.stub_indicators.insert(
             file.clone(),
             vec![StubIndicator {
                 file: file.clone(),

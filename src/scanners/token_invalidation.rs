@@ -307,7 +307,7 @@ mod tests {
         let config = default_config();
         let store = IndexStore::new();
 
-        store.sql_query_refs.insert(
+        store.data.sql_query_refs.insert(
             "users".into(),
             vec![SqlQueryRef {
                 table_name: "users".to_string(),
@@ -338,7 +338,7 @@ mod tests {
 
         let file = PathBuf::from("routes/users.ts");
 
-        store.sql_query_refs.insert(
+        store.data.sql_query_refs.insert(
             "users".into(),
             vec![SqlQueryRef {
                 table_name: "users".to_string(),
@@ -349,7 +349,7 @@ mod tests {
             }],
         );
 
-        store.api_endpoints.insert(
+        store.api.endpoints.insert(
             "/users/:id".into(),
             vec![ApiEndpoint {
                 method: HttpMethod::Delete,
@@ -379,7 +379,7 @@ mod tests {
 
         let file = PathBuf::from("routes/users.ts");
 
-        store.sql_query_refs.insert(
+        store.data.sql_query_refs.insert(
             "users".into(),
             vec![SqlQueryRef {
                 table_name: "users".to_string(),
@@ -390,7 +390,7 @@ mod tests {
             }],
         );
 
-        store.session_invalidation_refs.insert(
+        store.security.session_invalidation_refs.insert(
             file.clone(),
             vec![SessionInvalidationRef {
                 file: file.clone(),
@@ -417,7 +417,7 @@ mod tests {
 
         let file = PathBuf::from("services/archive.ts");
 
-        store.soft_delete_columns.insert(
+        store.data.soft_delete_columns.insert(
             "users".to_string(),
             vec![SoftDeleteColumn {
                 table_name: "users".to_string(),
@@ -428,7 +428,7 @@ mod tests {
             }],
         );
 
-        store.db_write_refs.insert(
+        store.data.db_write_refs.insert(
             "users".into(),
             vec![DbWriteRef {
                 table_name: "users".to_string(),
@@ -458,7 +458,7 @@ mod tests {
         let protected_file = PathBuf::from("routes/users.ts");
         let unprotected_file = PathBuf::from("routes/accounts.ts");
 
-        store.sql_query_refs.insert(
+        store.data.sql_query_refs.insert(
             "users".into(),
             vec![SqlQueryRef {
                 table_name: "users".to_string(),
@@ -470,6 +470,7 @@ mod tests {
         );
 
         store
+            .data
             .sql_query_refs
             .entry("accounts".into())
             .or_default()
@@ -481,7 +482,7 @@ mod tests {
                 line: 30,
             });
 
-        store.session_invalidation_refs.insert(
+        store.security.session_invalidation_refs.insert(
             protected_file.clone(),
             vec![SessionInvalidationRef {
                 file: protected_file.clone(),
@@ -508,7 +509,7 @@ mod tests {
 
         let file = PathBuf::from("routes/admin.ts");
 
-        store.db_write_refs.insert(
+        store.data.db_write_refs.insert(
             "users".into(),
             vec![DbWriteRef {
                 table_name: "users".to_string(),
@@ -518,7 +519,7 @@ mod tests {
             }],
         );
 
-        store.soft_delete_columns.insert(
+        store.data.soft_delete_columns.insert(
             "users".to_string(),
             vec![SoftDeleteColumn {
                 table_name: "users".to_string(),
@@ -529,7 +530,7 @@ mod tests {
             }],
         );
 
-        store.api_endpoints.insert(
+        store.api.endpoints.insert(
             "/admin/users/:id/suspend".into(),
             vec![ApiEndpoint {
                 method: HttpMethod::Post,

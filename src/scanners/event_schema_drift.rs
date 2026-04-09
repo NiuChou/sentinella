@@ -22,8 +22,8 @@ impl Scanner for EventSchemaDrift {
     fn scan(&self, ctx: &ScanContext) -> ScanResult {
         let mut findings = Vec::new();
 
-        let producer_topics = collect_topics(&ctx.index.event_producers);
-        let consumer_topics = collect_topics(&ctx.index.event_consumers);
+        let producer_topics = collect_topics(&ctx.index.events.producers);
+        let consumer_topics = collect_topics(&ctx.index.events.consumers);
 
         if producer_topics.is_empty() && consumer_topics.is_empty() {
             return ScanResult {
@@ -37,7 +37,7 @@ impl Scanner for EventSchemaDrift {
         // Unhandled events: produced but not consumed
         for topic in &producer_topics {
             if !consumer_topics.contains(topic) && !has_fuzzy_consumer(topic, &consumer_topics) {
-                let producer_entries = ctx.index.event_producers.get(topic);
+                let producer_entries = ctx.index.events.producers.get(topic);
                 if let Some(entries) = producer_entries {
                     for entry in entries.value() {
                         findings.push(
@@ -63,7 +63,7 @@ impl Scanner for EventSchemaDrift {
         // Dead listeners: consumed but not produced
         for topic in &consumer_topics {
             if !producer_topics.contains(topic) && !has_fuzzy_producer(topic, &producer_topics) {
-                let consumer_entries = ctx.index.event_consumers.get(topic);
+                let consumer_entries = ctx.index.events.consumers.get(topic);
                 if let Some(entries) = consumer_entries {
                     for entry in entries.value() {
                         findings.push(
@@ -189,12 +189,14 @@ fn detect_naming_drift(
             // Found a naming drift pair
             let producer_file = ctx
                 .index
-                .event_producers
+                .events
+                .producers
                 .get(pt)
                 .and_then(|entries| entries.value().first().map(|e| (e.file.clone(), e.line)));
             let consumer_file = ctx
                 .index
-                .event_consumers
+                .events
+                .consumers
                 .get(ct)
                 .and_then(|entries| entries.value().first().map(|e| (e.file.clone(), e.line)));
 

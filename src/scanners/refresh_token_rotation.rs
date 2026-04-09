@@ -123,7 +123,7 @@ layers: {}
         let store = IndexStore::new();
         let file = PathBuf::from("src/auth/refresh.ts");
 
-        store.token_refresh_refs.insert(
+        store.security.token_refresh_refs.insert(
             file.clone(),
             vec![TokenRefreshRef {
                 file: file.clone(),
@@ -147,7 +147,7 @@ layers: {}
         let store = IndexStore::new();
         let file = PathBuf::from("src/auth/refresh.ts");
 
-        store.token_refresh_refs.insert(
+        store.security.token_refresh_refs.insert(
             file.clone(),
             vec![TokenRefreshRef {
                 file: file.clone(),
@@ -172,7 +172,7 @@ layers: {}
         let file_a = PathBuf::from("src/auth/refresh.ts");
         let file_b = PathBuf::from("src/auth/oauth.ts");
 
-        store.token_refresh_refs.insert(
+        store.security.token_refresh_refs.insert(
             file_a.clone(),
             vec![
                 TokenRefreshRef {
@@ -187,7 +187,7 @@ layers: {}
                 },
             ],
         );
-        store.token_refresh_refs.insert(
+        store.security.token_refresh_refs.insert(
             file_b.clone(),
             vec![TokenRefreshRef {
                 file: file_b.clone(),

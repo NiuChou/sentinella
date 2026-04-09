@@ -157,7 +157,7 @@ layers: {}
         let store = IndexStore::new();
         let file = PathBuf::from("src/auth.ts");
 
-        store.insecure_storage_refs.insert(
+        store.security.insecure_storage_refs.insert(
             file.clone(),
             vec![InsecureStorageRef {
                 file: file.clone(),
@@ -186,7 +186,7 @@ layers: {}
         let store = IndexStore::new();
         let file = PathBuf::from("src/session.ts");
 
-        store.insecure_storage_refs.insert(
+        store.security.insecure_storage_refs.insert(
             file.clone(),
             vec![InsecureStorageRef {
                 file: file.clone(),
@@ -247,7 +247,7 @@ layers: {}
         let store = IndexStore::new();
         let file = PathBuf::from("src/prefs.ts");
 
-        store.insecure_storage_refs.insert(
+        store.security.insecure_storage_refs.insert(
             file.clone(),
             vec![InsecureStorageRef {
                 file: file.clone(),
@@ -274,7 +274,7 @@ layers: {}
         let store = IndexStore::new();
         let file = PathBuf::from("src/login.ts");
 
-        store.insecure_storage_refs.insert(
+        store.security.insecure_storage_refs.insert(
             file.clone(),
             vec![InsecureStorageRef {
                 file: file.clone(),
@@ -303,7 +303,7 @@ layers: {}
         let file_a = PathBuf::from("src/auth.ts");
         let file_b = PathBuf::from("src/session.ts");
 
-        store.insecure_storage_refs.insert(
+        store.security.insecure_storage_refs.insert(
             file_a.clone(),
             vec![InsecureStorageRef {
                 file: file_a.clone(),
@@ -313,7 +313,7 @@ layers: {}
             }],
         );
 
-        store.insecure_storage_refs.insert(
+        store.security.insecure_storage_refs.insert(
             file_b.clone(),
             vec![InsecureStorageRef {
                 file: file_b.clone(),

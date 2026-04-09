@@ -239,6 +239,7 @@ layers: {}
 
     fn insert_db_write(store: &IndexStore, write: DbWriteRef) {
         store
+            .data
             .db_write_refs
             .entry(write.table_name.clone())
             .or_default()
@@ -247,7 +248,8 @@ layers: {}
 
     fn insert_endpoint(store: &IndexStore, ep: ApiEndpoint) {
         store
-            .api_endpoints
+            .api
+            .endpoints
             .entry(ep.path.clone())
             .or_default()
             .push(ep);
@@ -255,6 +257,7 @@ layers: {}
 
     fn insert_concurrency_ref(store: &IndexStore, r: ConcurrencySafetyRef) {
         store
+            .code_quality
             .concurrency_safety_refs
             .entry(r.file.clone())
             .or_default()
@@ -456,6 +459,7 @@ layers: {}
         let file = "src/auth/register.ts";
         insert_db_write(&store, make_db_write("users", DbWriteOp::Insert, file, 25));
         store
+            .code_quality
             .concurrency_safety_refs
             .entry(PathBuf::from(file))
             .or_default()
