@@ -9,13 +9,14 @@ use super::{
 };
 use crate::indexer::store::{normalize_api_path, IndexStore};
 use crate::indexer::types::{
-    ApiCall, ApiEndpoint, AuditLogRef, ConcurrencySafetyRef, ConcurrencySafetyType, DbPoolRef,
-    DbWriteOp, DbWriteRef, EnvRef, ErrorHandlingRef, ErrorHandlingType, FileInfo, Framework,
-    FunctionSignature, HardcodedCredential, HttpMethod, ImportEdge, InsecureStorageRef,
-    InsecureStorageType, Language, MiddlewareScope, RateLimitRef, RateLimitType, RedisKeyRef,
-    RedisOp, RlsContextRef, RoleCheckRef, RoleCheckType, SecondaryAuthRef, SecondaryAuthType,
-    SensitiveLogRef, SensitiveLogType, SessionInvalidationRef, SessionInvalidationType, SqlQueryOp,
-    SqlQueryRef, StubIndicator, StubType, TestBypassRef, TestBypassType, TokenRefreshRef,
+    ApiCall, ApiEndpoint, AuditLogRef, ConcurrencySafetyRef, ConcurrencySafetyType,
+    CookieSettingRef, DbPoolRef, DbWriteOp, DbWriteRef, EnvRef, ErrorHandlingRef,
+    ErrorHandlingType, FileInfo, Framework, FunctionSignature, HardcodedCredential, HttpMethod,
+    ImportEdge, InsecureStorageRef, InsecureStorageType, Language, MiddlewareScope, NextRewriteRule,
+    RateLimitRef, RateLimitType, RedisKeyRef, RedisOp, RlsContextRef, RoleCheckRef, RoleCheckType,
+    SecondaryAuthRef, SecondaryAuthType, SensitiveLogRef, SensitiveLogType, SessionInvalidationRef,
+    SessionInvalidationType, SqlQueryOp, SqlQueryRef, StubIndicator, StubType, TestBypassRef,
+    TestBypassType, TokenRefreshRef,
 };
 
 const ROUTES_QUERY: &str = include_str!("../queries/typescript/routes.scm");
@@ -79,6 +80,11 @@ impl LanguageParser for TypeScriptParser {
         scan_test_bypass_ts(path, source, store);
         scan_token_refresh_ts(path, source, store);
         scan_concurrency_safety_ts(path, source, store);
+        scan_catch_no_rethrow_ts(path, source, store);
+        scan_raw_fetch_bypass_ts(path, source, store);
+        scan_missing_429_handler_ts(path, source, store);
+        scan_cookie_settings_ts(path, source, store);
+        scan_next_rewrite_rules(path, source, store);
 
         Ok(())
     }
@@ -1334,19 +1340,22 @@ fn scan_rate_limit_ts(path: &Path, source: &[u8], store: &IndexStore) {
 
     let dec_re = rate_limit_decorator_re();
     let mw_re = rate_limit_middleware_re();
+    let lines: Vec<&str> = source_str.lines().collect();
 
-    for (line_num, line_text) in source_str.lines().enumerate() {
+    for (line_num, line_text) in lines.iter().enumerate() {
         let trimmed = line_text.trim();
         if trimmed.starts_with("//") || trimmed.starts_with('*') {
             continue;
         }
 
         if dec_re.is_match(line_text) {
+            let has_retry_after = has_retry_after_nearby(&lines, line_num, 15);
             let entry = RateLimitRef {
                 file: path.to_path_buf(),
                 line: line_num + 1,
                 endpoint_hint: None,
                 limit_type: RateLimitType::Decorator,
+                has_retry_after,
             };
             store
                 .security
@@ -1357,11 +1366,13 @@ fn scan_rate_limit_ts(path: &Path, source: &[u8], store: &IndexStore) {
         }
 
         if mw_re.is_match(line_text) {
+            let has_retry_after = has_retry_after_nearby(&lines, line_num, 15);
             let entry = RateLimitRef {
                 file: path.to_path_buf(),
                 line: line_num + 1,
                 endpoint_hint: None,
                 limit_type: RateLimitType::Middleware,
+                has_retry_after,
             };
             store
                 .security
@@ -1371,6 +1382,15 @@ fn scan_rate_limit_ts(path: &Path, source: &[u8], store: &IndexStore) {
                 .push(entry);
         }
     }
+}
+
+/// Check if "retry-after" or "Retry-After" appears within `window` lines of `center`.
+fn has_retry_after_nearby(lines: &[&str], center: usize, window: usize) -> bool {
+    let start = center.saturating_sub(window);
+    let end = (center + window).min(lines.len());
+    lines[start..end]
+        .iter()
+        .any(|l| l.to_lowercase().contains("retry-after") || l.to_lowercase().contains("retryafter"))
 }
 
 // ---------------------------------------------------------------------------
@@ -1958,5 +1978,365 @@ mod tests {
             Some("DATABASE_URL_ADMIN"),
             "Should extract DATABASE_URL_ADMIN env var"
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S17 extensions: CatchNoRethrow, EmptyCatch401 (via scan_error_handling_ts
+// detecting 401 context), RawFetchBypass, Missing429Handler
+// ---------------------------------------------------------------------------
+
+/// Regex matching catch blocks that have a body (not empty) but do NOT re-throw.
+fn ts_catch_with_body_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        // catch(e) { <something> }  — we look for catch blocks on a single line
+        // that contain code but no `throw` keyword
+        Regex::new(r"catch\s*\([^)]*\)\s*\{[^}]+\}").unwrap()
+    })
+}
+
+fn ts_throw_in_catch_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"\bthrow\b").unwrap())
+}
+
+/// Detect catch blocks that handle errors but do NOT re-throw.
+/// Also detects EmptyCatch401: empty catch blocks around 401-related code.
+fn scan_catch_no_rethrow_ts(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let catch_body_re = ts_catch_with_body_re();
+    let throw_re = ts_throw_in_catch_re();
+    let empty_catch_re = ts_empty_catch_re();
+    let lines: Vec<&str> = source_str.lines().collect();
+
+    for (line_num, line_text) in lines.iter().enumerate() {
+        let trimmed = line_text.trim();
+        if trimmed.starts_with("//") || trimmed.starts_with('*') {
+            continue;
+        }
+
+        // CatchNoRethrow: catch block with body but no throw
+        if catch_body_re.is_match(line_text) && !throw_re.is_match(line_text) {
+            let entry = ErrorHandlingRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                error_type: ErrorHandlingType::CatchNoRethrow,
+                context: trimmed.chars().take(80).collect(),
+            };
+            store
+                .code_quality
+                .error_handling_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+
+        // EmptyCatch401: empty catch block near 401/auth code
+        if empty_catch_re.is_match(line_text) {
+            let has_401_context = has_auth_context_nearby(&lines, line_num, 10);
+            if has_401_context {
+                let entry = ErrorHandlingRef {
+                    file: path.to_path_buf(),
+                    line: line_num + 1,
+                    error_type: ErrorHandlingType::EmptyCatch401,
+                    context: "empty catch near 401/auth handling".to_string(),
+                };
+                store
+                    .code_quality
+                    .error_handling_refs
+                    .entry(path.to_path_buf())
+                    .or_default()
+                    .push(entry);
+            }
+        }
+    }
+}
+
+/// Check if lines near `center` contain 401-specific patterns.
+/// Narrowed to avoid false positives: only "401" literal and "unauthorized" status text.
+/// Excludes generic words like "token" or "refresh" which appear in non-auth contexts.
+fn has_auth_context_nearby(lines: &[&str], center: usize, window: usize) -> bool {
+    let start = center.saturating_sub(window);
+    let end = (center + window).min(lines.len());
+    lines[start..end].iter().any(|l| {
+        let lower = l.to_lowercase();
+        lower.contains("401") || lower.contains("unauthorized")
+    })
+}
+
+/// Regex for raw fetch() or axios calls (not through a wrapper).
+fn ts_raw_fetch_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?:^|\s)(?:fetch|axios\.(?:get|post|put|patch|delete))\s*\(").unwrap()
+    })
+}
+
+/// Regex for shared auth client wrappers that are OK.
+fn ts_auth_client_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(authFetch|authClient|apiClient|createAuthClient|authAxios|authenticatedFetch|httpClient)").unwrap()
+    })
+}
+
+/// Detect raw fetch()/axios calls that bypass the shared auth client.
+fn scan_raw_fetch_bypass_ts(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    // Skip files that ARE the auth client implementation
+    let path_str = path.to_string_lossy().to_lowercase();
+    if path_str.contains("auth-client")
+        || path_str.contains("authclient")
+        || path_str.contains("api-client")
+        || path_str.contains("apiclient")
+        || path_str.contains("http-client")
+        || path_str.contains("httpclient")
+        || path_str.contains("lib/fetch")
+        || path_str.contains("shared/")
+    {
+        return;
+    }
+
+    let raw_re = ts_raw_fetch_re();
+    let auth_re = ts_auth_client_re();
+
+    // Check if the file imports or defines a shared auth client
+    let uses_auth_client = source_str.lines().any(|l| auth_re.is_match(l));
+    // If the file already uses auth client, raw fetch calls here are suspect
+    // If the file doesn't import auth client at all, that's also a problem
+
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        let trimmed = line_text.trim();
+        if trimmed.starts_with("//") || trimmed.starts_with('*') || trimmed.starts_with("import") {
+            continue;
+        }
+
+        if raw_re.is_match(line_text) && !auth_re.is_match(line_text) {
+            // Only flag if file is a page/component (likely consumer, not library)
+            if path_str.contains("page")
+                || path_str.contains("component")
+                || path_str.contains("hook")
+                || path_str.contains("container")
+                || path_str.contains(".tsx")
+                || uses_auth_client
+            {
+                let entry = ErrorHandlingRef {
+                    file: path.to_path_buf(),
+                    line: line_num + 1,
+                    error_type: ErrorHandlingType::RawFetchBypass,
+                    context: trimmed.chars().take(80).collect(),
+                };
+                store
+                    .code_quality
+                    .error_handling_refs
+                    .entry(path.to_path_buf())
+                    .or_default()
+                    .push(entry);
+            }
+        }
+    }
+}
+
+/// Regex for HTTP response status checks that handle 429.
+fn ts_status_429_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?:status\s*[!=]==?\s*429|429\s*[!=]==?\s*status|\bTOO_MANY_REQUESTS\b|response\.status\s*===?\s*429)").unwrap())
+}
+
+/// Detect fetch/axios calls without explicit 429 handling.
+fn scan_missing_429_handler_ts(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let fetch_re = ts_raw_fetch_re();
+    let status_429_re = ts_status_429_re();
+
+    // Check if the file has any 429 handling anywhere
+    let has_429_handling = source_str.lines().any(|l| status_429_re.is_match(l));
+
+    if has_429_handling {
+        return; // File handles 429 somewhere — good enough
+    }
+
+    // Find fetch/axios calls in files without any 429 handling
+    for (line_num, line_text) in source_str.lines().enumerate() {
+        let trimmed = line_text.trim();
+        if trimmed.starts_with("//") || trimmed.starts_with('*') || trimmed.starts_with("import") {
+            continue;
+        }
+
+        if fetch_re.is_match(line_text) {
+            let entry = ErrorHandlingRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                error_type: ErrorHandlingType::Missing429Handler,
+                context: trimmed.chars().take(80).collect(),
+            };
+            store
+                .code_quality
+                .error_handling_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S21 extension: Cookie TTL detection
+// ---------------------------------------------------------------------------
+
+/// Regex for Set-Cookie / res.cookie / response.cookie calls.
+fn ts_set_cookie_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(?:res\.cookie|response\.cookie|setCookie|set-cookie|\.setHeader\s*\(\s*['"]set-cookie['"])"#).unwrap()
+    })
+}
+
+/// Regex for Max-Age or expires in cookie options.
+fn ts_cookie_ttl_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)(?:maxAge|max-age|expires)").unwrap())
+}
+
+/// Regex for hardcoded numeric TTL values (literal numbers).
+fn ts_hardcoded_ttl_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(?:maxAge|max-age)\s*[:=]\s*\d+").unwrap()
+    })
+}
+
+/// Extract cookie name from a set-cookie call if possible.
+fn extract_cookie_name(line: &str) -> String {
+    // Try to extract from res.cookie("name", ...) or setCookie("name", ...)
+    let re = Regex::new(r#"(?:cookie|setCookie)\s*\(\s*['"]([^'"]+)['"]"#).unwrap();
+    re.captures(line)
+        .and_then(|c| c.get(1))
+        .map(|m| m.as_str().to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn scan_cookie_settings_ts(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let cookie_re = ts_set_cookie_re();
+    let ttl_re = ts_cookie_ttl_re();
+    let hardcoded_re = ts_hardcoded_ttl_re();
+    let lines: Vec<&str> = source_str.lines().collect();
+
+    for (line_num, line_text) in lines.iter().enumerate() {
+        let trimmed = line_text.trim();
+        if trimmed.starts_with("//") || trimmed.starts_with('*') {
+            continue;
+        }
+
+        if cookie_re.is_match(line_text) {
+            let cookie_name = extract_cookie_name(line_text);
+            // Look in a window around the cookie call for TTL settings
+            let window = 5;
+            let start = line_num.saturating_sub(window);
+            let end = (line_num + window).min(lines.len());
+            let nearby = &lines[start..end];
+
+            let has_explicit_ttl = nearby.iter().any(|l| ttl_re.is_match(l));
+            let is_hardcoded_ttl = nearby.iter().any(|l| hardcoded_re.is_match(l));
+
+            let entry = CookieSettingRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                cookie_name,
+                has_explicit_ttl,
+                is_hardcoded_ttl,
+            };
+            store
+                .security
+                .cookie_setting_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S9 extension: Next.js rewrite rules from next.config.js / next.config.ts
+// ---------------------------------------------------------------------------
+
+fn ts_rewrite_source_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"source\s*:\s*['"]([^'"]+)['"]"#).unwrap()
+    })
+}
+
+fn ts_rewrite_destination_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"destination\s*:\s*['"]([^'"]+)['"]"#).unwrap()
+    })
+}
+
+fn scan_next_rewrite_rules(path: &Path, source: &[u8], store: &IndexStore) {
+    // Only scan next.config.js / next.config.ts / next.config.mjs
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    if !file_name.starts_with("next.config") {
+        return;
+    }
+
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let source_re = ts_rewrite_source_re();
+    let dest_re = ts_rewrite_destination_re();
+    let lines: Vec<&str> = source_str.lines().collect();
+
+    for (line_num, line_text) in lines.iter().enumerate() {
+        if let Some(src_cap) = source_re.captures(line_text) {
+            let source_path = src_cap.get(1).unwrap().as_str().to_string();
+
+            // Look for destination in nearby lines (same object block)
+            let window = 5;
+            let end = (line_num + window).min(lines.len());
+            let dest = lines[line_num..end]
+                .iter()
+                .find_map(|l| {
+                    dest_re.captures(l).map(|c| c.get(1).unwrap().as_str().to_string())
+                })
+                .unwrap_or_default();
+
+            let entry = NextRewriteRule {
+                source: source_path,
+                destination: dest,
+                file: path.to_path_buf(),
+                line: line_num + 1,
+            };
+            store
+                .api
+                .next_rewrite_rules
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
     }
 }

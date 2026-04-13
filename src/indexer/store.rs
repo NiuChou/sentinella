@@ -9,6 +9,7 @@ use super::types::*;
 pub struct ApiStore {
     pub endpoints: DashMap<String, Vec<ApiEndpoint>>,
     pub calls: DashMap<String, Vec<ApiCall>>,
+    pub next_rewrite_rules: DashMap<PathBuf, Vec<NextRewriteRule>>,
 }
 
 impl ApiStore {
@@ -39,6 +40,13 @@ impl ApiStore {
             .map(|entry| entry.value().clone())
             .unwrap_or_default()
     }
+
+    pub fn all_next_rewrite_rules(&self) -> Vec<NextRewriteRule> {
+        self.next_rewrite_rules
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
 }
 
 /// Security-related indexed data (auth, tokens, credentials, RLS, etc.)
@@ -58,6 +66,7 @@ pub struct SecurityStore {
     pub test_bypass_refs: DashMap<PathBuf, Vec<TestBypassRef>>,
     pub token_refresh_refs: DashMap<PathBuf, Vec<TokenRefreshRef>>,
     pub grant_details: DashMap<String, Vec<GrantDetail>>,
+    pub cookie_setting_refs: DashMap<PathBuf, Vec<CookieSettingRef>>,
 }
 
 impl SecurityStore {
@@ -147,6 +156,13 @@ impl SecurityStore {
 
     pub fn all_grant_details(&self) -> Vec<GrantDetail> {
         self.grant_details
+            .iter()
+            .flat_map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    pub fn all_cookie_setting_refs(&self) -> Vec<CookieSettingRef> {
+        self.cookie_setting_refs
             .iter()
             .flat_map(|entry| entry.value().clone())
             .collect()
@@ -533,6 +549,14 @@ impl IndexStore {
 
     pub fn all_grant_details(&self) -> Vec<GrantDetail> {
         self.security.all_grant_details()
+    }
+
+    pub fn all_cookie_setting_refs(&self) -> Vec<CookieSettingRef> {
+        self.security.all_cookie_setting_refs()
+    }
+
+    pub fn all_next_rewrite_rules(&self) -> Vec<NextRewriteRule> {
+        self.api.all_next_rewrite_rules()
     }
 
     pub fn all_test_files(&self) -> Vec<TestFileInfo> {

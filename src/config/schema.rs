@@ -64,6 +64,12 @@ pub struct S13Config {
 pub struct S17Config {
     #[serde(default)]
     pub safe_ignore_patterns: Vec<String>,
+    /// When set, enables RawFetchBypass detection. The value is a regex pattern
+    /// matching the project's shared auth client name (e.g. "authFetch|apiClient").
+    /// Without this, RawFetchBypass is **not** reported — it's an opt-in check
+    /// because most projects don't have a unified auth wrapper.
+    #[serde(default)]
+    pub auth_client_pattern: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

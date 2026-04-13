@@ -9,13 +9,13 @@ use super::{
 };
 use crate::indexer::store::{normalize_api_path, IndexStore};
 use crate::indexer::types::{
-    ApiEndpoint, AuditLogRef, ConcurrencySafetyRef, ConcurrencySafetyType, DbPoolRef, DbWriteOp,
-    DbWriteRef, EnvRef, ErrorHandlingRef, ErrorHandlingType, EventConsumer, EventProducer,
-    FileInfo, Framework, FunctionSignature, HardcodedCredential, HttpMethod, Language,
-    RateLimitRef, RateLimitType, RedisKeyRef, RedisOp, RlsContextRef, RoleCheckRef, RoleCheckType,
-    SecondaryAuthRef, SecondaryAuthType, SensitiveLogRef, SensitiveLogType, SessionInvalidationRef,
-    SessionInvalidationType, SqlQueryOp, SqlQueryRef, StubIndicator, StubType, TestBypassRef,
-    TestBypassType, TokenRefreshRef,
+    ApiEndpoint, AuditLogRef, ConcurrencySafetyRef, ConcurrencySafetyType, CookieSettingRef,
+    DbPoolRef, DbWriteOp, DbWriteRef, EnvRef, ErrorHandlingRef, ErrorHandlingType, EventConsumer,
+    EventProducer, FileInfo, Framework, FunctionSignature, HardcodedCredential, HttpMethod,
+    Language, RateLimitRef, RateLimitType, RedisKeyRef, RedisOp, RlsContextRef, RoleCheckRef,
+    RoleCheckType, SecondaryAuthRef, SecondaryAuthType, SensitiveLogRef, SensitiveLogType,
+    SessionInvalidationRef, SessionInvalidationType, SqlQueryOp, SqlQueryRef, StubIndicator,
+    StubType, TestBypassRef, TestBypassType, TokenRefreshRef,
 };
 
 const ROUTES_QUERY: &str = include_str!("../queries/go/routes.scm");
@@ -61,6 +61,7 @@ impl LanguageParser for GoParser {
         scan_test_bypass_go(path, source, store);
         scan_token_refresh_go(path, source, store);
         scan_concurrency_safety_go(path, source, store);
+        scan_cookie_settings_go(path, source, store);
 
         Ok(())
     }
@@ -1051,7 +1052,8 @@ fn scan_rate_limit_go(path: &Path, source: &[u8], store: &IndexStore) {
     };
 
     let re = rate_limit_go_re();
-    for (line_num, line_text) in source_str.lines().enumerate() {
+    let lines: Vec<&str> = source_str.lines().collect();
+    for (line_num, line_text) in lines.iter().enumerate() {
         let trimmed = line_text.trim();
         if trimmed.starts_with("//") {
             continue;
@@ -1062,11 +1064,13 @@ fn scan_rate_limit_go(path: &Path, source: &[u8], store: &IndexStore) {
             } else {
                 RateLimitType::Middleware
             };
+            let has_retry_after = has_retry_after_nearby_go(&lines, line_num, 15);
             let entry = RateLimitRef {
                 file: path.to_path_buf(),
                 line: line_num + 1,
                 endpoint_hint: None,
                 limit_type,
+                has_retry_after,
             };
             store
                 .security
@@ -1076,6 +1080,17 @@ fn scan_rate_limit_go(path: &Path, source: &[u8], store: &IndexStore) {
                 .push(entry);
         }
     }
+}
+
+fn has_retry_after_nearby_go(lines: &[&str], center: usize, window: usize) -> bool {
+    let start = center.saturating_sub(window);
+    let end = (center + window).min(lines.len());
+    lines[start..end]
+        .iter()
+        .any(|l| {
+            let lower = l.to_lowercase();
+            lower.contains("retry-after") || lower.contains("retryafter")
+        })
 }
 
 // ---------------------------------------------------------------------------
@@ -1523,5 +1538,88 @@ mod tests {
             has_admin_url,
             "Should detect DATABASE_URL_ADMIN connection var"
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S21 extension: Cookie TTL detection (Go)
+// ---------------------------------------------------------------------------
+
+fn go_set_cookie_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(?:http\.SetCookie|\.SetCookie|SetTokenCookies?|setCookie)\s*\(").unwrap()
+    })
+}
+
+fn go_cookie_name_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?:Name|name)\s*:\s*"([^"]+)""#).unwrap()
+    })
+}
+
+fn go_max_age_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)(?:MaxAge|max_age|Expires)").unwrap())
+}
+
+fn go_hardcoded_max_age_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)MaxAge\s*:\s*\d+").unwrap())
+}
+
+fn scan_cookie_settings_go(path: &Path, source: &[u8], store: &IndexStore) {
+    let source_str = match std::str::from_utf8(source) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let cookie_re = go_set_cookie_re();
+    let name_re = go_cookie_name_re();
+    let ttl_re = go_max_age_re();
+    let hardcoded_re = go_hardcoded_max_age_re();
+    let lines: Vec<&str> = source_str.lines().collect();
+
+    for (line_num, line_text) in lines.iter().enumerate() {
+        let trimmed = line_text.trim();
+        if trimmed.starts_with("//") {
+            continue;
+        }
+
+        if cookie_re.is_match(line_text) {
+            // Look for cookie name in nearby lines
+            let window = 8;
+            let start = line_num;
+            let end = (line_num + window).min(lines.len());
+            let nearby = &lines[start..end];
+
+            let cookie_name = nearby
+                .iter()
+                .find_map(|l| {
+                    name_re
+                        .captures(l)
+                        .and_then(|c| c.get(1))
+                        .map(|m| m.as_str().to_string())
+                })
+                .unwrap_or_else(|| "unknown".to_string());
+
+            let has_explicit_ttl = nearby.iter().any(|l| ttl_re.is_match(l));
+            let is_hardcoded_ttl = nearby.iter().any(|l| hardcoded_re.is_match(l));
+
+            let entry = CookieSettingRef {
+                file: path.to_path_buf(),
+                line: line_num + 1,
+                cookie_name,
+                has_explicit_ttl,
+                is_hardcoded_ttl,
+            };
+            store
+                .security
+                .cookie_setting_refs
+                .entry(path.to_path_buf())
+                .or_default()
+                .push(entry);
+        }
     }
 }

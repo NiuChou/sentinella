@@ -7,7 +7,8 @@ use super::types::{Finding, ScanContext, ScanResult, Scanner, Severity};
 
 const SCANNER_ID: &str = "S9";
 const SCANNER_NAME: &str = "API Contract Drift";
-const SCANNER_DESC: &str = "Detect frontend/backend API contract mismatches";
+const SCANNER_DESC: &str =
+    "Detect frontend/backend API contract mismatches and Next.js rewrite completeness gaps";
 
 pub struct ApiContractDrift;
 
@@ -27,6 +28,7 @@ impl Scanner for ApiContractDrift {
     fn scan(&self, ctx: &ScanContext) -> ScanResult {
         let endpoints = ctx.index.all_api_endpoints();
         let calls = ctx.index.all_api_calls();
+        let rewrite_rules = ctx.index.all_next_rewrite_rules();
 
         let endpoint_index = build_endpoint_index(&endpoints);
         let call_index = build_call_index(&calls);
@@ -106,9 +108,55 @@ impl Scanner for ApiContractDrift {
             }
         }
 
+        // --- Next.js rewrite completeness check ---
+        // If rewrite rules exist, verify that all frontend API calls that go through
+        // the Next.js proxy have a matching rewrite rule.
+        if !rewrite_rules.is_empty() {
+            let rewrite_sources: HashSet<String> = rewrite_rules
+                .iter()
+                .map(|r| normalize_api_path(&r.source))
+                .collect();
+
+            for call in &calls {
+                let normalized_url = normalize_api_path(&call.url);
+                // Only check calls that look like they go through Next.js rewrite
+                // (typically /api/* or /svc/* paths)
+                if is_rewrite_candidate(&normalized_url) {
+                    let has_rewrite = rewrite_sources.iter().any(|src| {
+                        rewrite_pattern_matches(src, &normalized_url)
+                    });
+
+                    if !has_rewrite {
+                        findings.push(
+                            Finding::new(
+                                SCANNER_ID,
+                                Severity::Critical,
+                                format!(
+                                    "MISSING REWRITE: {} {} has no matching Next.js rewrite rule \
+                                     in next.config.js — request will 404 in production",
+                                    call.method, call.url
+                                ),
+                            )
+                            .with_file(&call.file)
+                            .with_line(call.line)
+                            .with_suggestion(
+                                "Add a rewrite rule in next.config.js to proxy this API path \
+                                 to the backend service. Missing rewrites cause 404s in \
+                                 production even if the backend endpoint exists",
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+
         let unused_count = findings
             .iter()
             .filter(|f| f.message.starts_with("UNUSED API"))
+            .count();
+        let missing_rewrite_count = findings
+            .iter()
+            .filter(|f| f.message.starts_with("MISSING REWRITE"))
             .count();
 
         let score = if total_calls == 0 {
@@ -118,10 +166,13 @@ impl Scanner for ApiContractDrift {
             ((healthy as f64 / total_calls as f64) * 100.0).round() as u8
         };
 
-        let summary = format!(
+        let mut summary = format!(
             "{} API calls checked: {} broken, {} unused endpoints",
             total_calls, broken_count, unused_count
         );
+        if missing_rewrite_count > 0 {
+            summary.push_str(&format!(", {} missing rewrites", missing_rewrite_count));
+        }
 
         ScanResult {
             scanner: SCANNER_ID.to_string(),
@@ -207,6 +258,33 @@ fn find_matching_endpoint(
     EndpointMatch::NoMatch
 }
 
+/// Returns true if the API path looks like it should go through Next.js rewrite
+/// (e.g., /api/*, /svc/*, or similar proxy patterns).
+fn is_rewrite_candidate(normalized_path: &str) -> bool {
+    normalized_path.starts_with("/api/")
+        || normalized_path.starts_with("/svc/")
+        || normalized_path.starts_with("/gateway/")
+}
+
+/// Check if a rewrite source pattern covers the given API path.
+/// Handles wildcard patterns like `/api/:path*` and `/svc/:param`.
+fn rewrite_pattern_matches(source_pattern: &str, api_path: &str) -> bool {
+    // Exact match
+    if source_pattern == api_path {
+        return true;
+    }
+
+    // Wildcard suffix match: /api/:param covers /api/anything/nested
+    // Strip the :param suffix from the pattern and check prefix
+    if let Some(prefix) = source_pattern.strip_suffix("/:param") {
+        if api_path.starts_with(prefix) && api_path.len() > prefix.len() {
+            return true;
+        }
+    }
+
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -243,7 +321,6 @@ mod tests {
 
     #[test]
     fn test_normalize_route_params() {
-        // All parameter formats produce the same normalized output
         let colon = normalize_api_path("/api/users/:id");
         let dollar = normalize_api_path("/api/users/${userId}");
         let brace = normalize_api_path("/api/users/{id}");
@@ -256,12 +333,10 @@ mod tests {
 
     #[test]
     fn test_find_match_with_different_param_formats() {
-        // Backend uses Express-style :id
         let endpoints = vec![EndpointEntry {
             normalized_path: normalize_api_path("/api/users/:id"),
             method: HttpMethod::Get,
         }];
-        // Frontend uses ${userId} — after normalization should match
         let frontend_url = normalize_api_path("/api/users/${userId}");
         let result = find_matching_endpoint(&frontend_url, HttpMethod::Get, &endpoints);
         assert!(
@@ -276,7 +351,6 @@ mod tests {
             normalized_path: normalize_api_path("/api/users/:id"),
             method: HttpMethod::Get,
         }];
-        // Frontend call includes query string
         let frontend_url = normalize_api_path("/api/users/${userId}?include=posts");
         let result = find_matching_endpoint(&frontend_url, HttpMethod::Get, &endpoints);
         assert!(
@@ -287,17 +361,132 @@ mod tests {
 
     #[test]
     fn test_find_match_with_plural_variant() {
-        // Backend has singular: /api/session/:id
         let endpoints = vec![EndpointEntry {
             normalized_path: normalize_api_path("/api/session/:id"),
             method: HttpMethod::Get,
         }];
-        // Frontend uses plural: /api/sessions/:id
         let frontend_url = normalize_api_path("/api/sessions/:id");
         let result = find_matching_endpoint(&frontend_url, HttpMethod::Get, &endpoints);
         assert!(
             matches!(result, EndpointMatch::Exact),
             "Expected /api/sessions/:id to match /api/session/:id via plural variant"
         );
+    }
+
+    // --- New tests for rewrite completeness ---
+
+    #[test]
+    fn test_is_rewrite_candidate() {
+        assert!(is_rewrite_candidate("/api/users"));
+        assert!(is_rewrite_candidate("/api/auth/login"));
+        assert!(is_rewrite_candidate("/svc/model/list"));
+        assert!(is_rewrite_candidate("/gateway/v1/data"));
+        assert!(!is_rewrite_candidate("/users"));
+        assert!(!is_rewrite_candidate("/static/image.png"));
+    }
+
+    #[test]
+    fn test_rewrite_pattern_matches_exact() {
+        assert!(rewrite_pattern_matches("/api/users", "/api/users"));
+        assert!(!rewrite_pattern_matches("/api/users", "/api/orders"));
+    }
+
+    #[test]
+    fn test_rewrite_pattern_matches_wildcard() {
+        // /api/:param covers /api/anything
+        assert!(rewrite_pattern_matches("/api/:param", "/api/users"));
+        assert!(rewrite_pattern_matches("/api/:param", "/api/users/123"));
+        assert!(!rewrite_pattern_matches("/api/:param", "/api"));
+        assert!(!rewrite_pattern_matches("/svc/:param", "/api/users"));
+    }
+
+    #[test]
+    fn test_rewrite_completeness_integration() {
+        use crate::config::schema::Config;
+        use crate::indexer::store::IndexStore;
+        use crate::indexer::types::{ApiCall, ApiEndpoint, Framework, NextRewriteRule};
+        use std::path::PathBuf;
+
+        let config: Config = serde_yaml::from_str(
+            r#"
+version: "1.0"
+project: test
+layers: {}
+"#,
+        )
+        .unwrap();
+
+        let store = IndexStore::new();
+
+        // Backend endpoint
+        let ep = ApiEndpoint {
+            method: HttpMethod::Get,
+            path: "/api/users".to_string(),
+            file: PathBuf::from("backend/routes.ts"),
+            line: 10,
+            framework: Framework::Express,
+        };
+        let key = normalize_api_path(&ep.path);
+        store.api.endpoints.entry(key).or_default().push(ep);
+
+        // Frontend calls
+        let call_covered = ApiCall {
+            method: HttpMethod::Get,
+            url: "/api/users".to_string(),
+            file: PathBuf::from("frontend/pages/users.tsx"),
+            line: 5,
+            is_template: false,
+        };
+        let call_uncovered = ApiCall {
+            method: HttpMethod::Get,
+            url: "/svc/models/list".to_string(),
+            file: PathBuf::from("frontend/pages/models.tsx"),
+            line: 12,
+            is_template: false,
+        };
+        store
+            .api
+            .calls
+            .entry(normalize_api_path(&call_covered.url))
+            .or_default()
+            .push(call_covered);
+        store
+            .api
+            .calls
+            .entry(normalize_api_path(&call_uncovered.url))
+            .or_default()
+            .push(call_uncovered);
+
+        // Rewrite rules — only covers /api/*
+        let rewrite = NextRewriteRule {
+            source: "/api/:path*".to_string(),
+            destination: "http://backend:3000/api/:path*".to_string(),
+            file: PathBuf::from("next.config.js"),
+            line: 15,
+        };
+        store
+            .api
+            .next_rewrite_rules
+            .entry(PathBuf::from("next.config.js"))
+            .or_default()
+            .push(rewrite);
+
+        let ctx = ScanContext {
+            config: &config,
+            index: &store,
+            root_dir: std::path::Path::new("."),
+        };
+
+        let result = ApiContractDrift.scan(&ctx);
+
+        // /svc/models/list has no rewrite rule → MISSING REWRITE
+        let missing_rewrites: Vec<_> = result
+            .findings
+            .iter()
+            .filter(|f| f.message.contains("MISSING REWRITE"))
+            .collect();
+        assert_eq!(missing_rewrites.len(), 1);
+        assert!(missing_rewrites[0].message.contains("/svc/models/list"));
+        assert!(result.summary.contains("missing rewrites"));
     }
 }

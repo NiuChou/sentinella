@@ -8,7 +8,8 @@ pub struct RateLimitingCoverage;
 const SCANNER_ID: &str = "S22";
 const SCANNER_NAME: &str = "RateLimitingCoverage";
 const SCANNER_DESC: &str =
-    "Checks whether authentication and sensitive endpoints have rate limiting protection";
+    "Checks whether authentication and sensitive endpoints have rate limiting protection, \
+     validates Retry-After header inclusion, and detects refresh endpoint rate-limit deadlocks";
 
 /// Default keywords that identify auth-related endpoints.
 const DEFAULT_AUTH_KEYWORDS: &[&str] = &[
@@ -24,16 +25,33 @@ const DEFAULT_AUTH_KEYWORDS: &[&str] = &[
     "callback",
 ];
 
-/// Returns true if the endpoint path contains any auth-related keyword (default set).
-#[cfg(test)]
-fn is_auth_endpoint(path: &str) -> bool {
-    is_auth_endpoint_with_keywords(path, DEFAULT_AUTH_KEYWORDS)
-}
+/// Keywords that identify refresh/token endpoints that should be excluded from
+/// aggressive rate limiting to avoid deadlock (user locked out of re-auth).
+/// These must co-occur with an auth keyword to avoid matching non-auth refreshes
+/// like `/api/refresh-cache` or `/api/data/refresh`.
+const REFRESH_KEYWORDS: &[&str] = &["refresh", "token/refresh", "auth/refresh"];
+
+/// Auth-context keywords that confirm a "refresh" endpoint is auth-related.
+const AUTH_CONTEXT_KEYWORDS: &[&str] = &["auth", "token", "login", "session", "oauth"];
 
 /// Returns true if the endpoint path contains any of the given keywords.
 fn is_auth_endpoint_with_keywords(path: &str, keywords: &[&str]) -> bool {
     let lower = path.to_lowercase();
     keywords.iter().any(|kw| lower.contains(kw))
+}
+
+/// Returns true if the endpoint path is an **auth-related** refresh endpoint.
+/// Requires both a refresh keyword AND an auth-context keyword to avoid
+/// false positives on non-auth refresh endpoints like `/api/refresh-cache`.
+fn is_refresh_endpoint(path: &str) -> bool {
+    let lower = path.to_lowercase();
+    let has_refresh = REFRESH_KEYWORDS.iter().any(|kw| lower.contains(kw));
+    if !has_refresh {
+        return false;
+    }
+    // Must also have auth context — "token/refresh" and "auth/refresh" already
+    // contain auth keywords, but standalone "/refresh" needs a second signal.
+    AUTH_CONTEXT_KEYWORDS.iter().any(|kw| lower.contains(kw))
 }
 
 /// Compute score from the ratio of protected auth endpoints to total auth endpoints.
@@ -43,6 +61,12 @@ fn compute_score(protected: usize, total: usize) -> u8 {
         return 100;
     }
     ((protected as f64 / total as f64) * 100.0).round() as u8
+}
+
+/// Returns true if the endpoint path contains any auth keyword (default set).
+#[cfg(test)]
+fn is_auth_endpoint(path: &str) -> bool {
+    is_auth_endpoint_with_keywords(path, DEFAULT_AUTH_KEYWORDS)
 }
 
 fn build_summary(findings: &[Finding], _protected: usize, total: usize, score: u8) -> String {
@@ -56,11 +80,36 @@ fn build_summary(findings: &[Finding], _protected: usize, total: usize, score: u
             total, score
         );
     }
+
+    let missing_rl = findings
+        .iter()
+        .filter(|f| f.message.contains("no rate limiting"))
+        .count();
+    let missing_retry = findings
+        .iter()
+        .filter(|f| f.message.contains("Retry-After"))
+        .count();
+    let deadlock = findings
+        .iter()
+        .filter(|f| f.message.contains("deadlock"))
+        .count();
+
+    let mut parts = Vec::new();
+    if missing_rl > 0 {
+        parts.push(format!("{} unprotected", missing_rl));
+    }
+    if missing_retry > 0 {
+        parts.push(format!("{} missing Retry-After", missing_retry));
+    }
+    if deadlock > 0 {
+        parts.push(format!("{} refresh deadlock risk", deadlock));
+    }
+
     format!(
-        "{}/{} auth endpoints lack rate limiting ({} unprotected, score: {})",
+        "{}/{} auth endpoints with issues: {} (score: {})",
         findings.len(),
         total,
-        findings.len(),
+        parts.join(", "),
         score
     )
 }
@@ -111,14 +160,16 @@ impl Scanner for RateLimitingCoverage {
             };
         }
 
-        // Group rate limit refs by file with their line numbers so we can check
-        // proximity rather than mere file-level co-occurrence.
+        // Group rate limit refs by file with their line numbers and metadata
         const PROXIMITY_LINES: usize = 30;
 
-        let rate_limit_by_file: HashMap<PathBuf, Vec<usize>> = {
-            let mut map: HashMap<PathBuf, Vec<usize>> = HashMap::new();
-            for r in ctx.index.all_rate_limit_refs() {
-                map.entry(r.file).or_default().push(r.line);
+        let all_rate_limit_refs = ctx.index.all_rate_limit_refs();
+
+        let rate_limit_by_file: HashMap<PathBuf, Vec<&crate::indexer::types::RateLimitRef>> = {
+            let mut map: HashMap<PathBuf, Vec<&crate::indexer::types::RateLimitRef>> =
+                HashMap::new();
+            for r in &all_rate_limit_refs {
+                map.entry(r.file.clone()).or_default().push(r);
             }
             map
         };
@@ -126,38 +177,86 @@ impl Scanner for RateLimitingCoverage {
         let mut findings = Vec::new();
 
         for ep in &auth_endpoints {
-            let is_protected = rate_limit_by_file
+            let matching_rl = rate_limit_by_file
                 .get(&ep.file)
-                .map(|lines| {
-                    lines.iter().any(|&rl_line| {
-                        // Rate limit should appear before or at the endpoint definition
-                        // (decorators/middleware are usually above the handler).
-                        rl_line <= ep.line && ep.line - rl_line <= PROXIMITY_LINES
+                .and_then(|refs| {
+                    refs.iter().find(|rl| {
+                        rl.line <= ep.line && ep.line - rl.line <= PROXIMITY_LINES
                     })
-                })
-                .unwrap_or(false);
+                });
 
-            if !is_protected {
-                findings.push(
-                    Finding::new(
-                        SCANNER_ID,
-                        Severity::Critical,
-                        format!(
-                            "Auth endpoint {} {} has no rate limiting protection",
-                            ep.method, ep.path
+            match matching_rl {
+                None => {
+                    // No rate limiting at all
+                    findings.push(
+                        Finding::new(
+                            SCANNER_ID,
+                            Severity::Critical,
+                            format!(
+                                "Auth endpoint {} {} has no rate limiting protection",
+                                ep.method, ep.path
+                            ),
+                        )
+                        .with_file(&ep.file)
+                        .with_line(ep.line)
+                        .with_suggestion(
+                            "Add rate limiting (decorator, middleware, or library) to protect \
+                             this authentication endpoint from brute-force attacks",
                         ),
-                    )
-                    .with_file(&ep.file)
-                    .with_line(ep.line)
-                    .with_suggestion(
-                        "Add rate limiting (decorator, middleware, or library) to protect \
-                         this authentication endpoint from brute-force attacks",
-                    ),
-                );
+                    );
+                }
+                Some(rl) => {
+                    // Check 1: Rate limiting exists but missing Retry-After header
+                    if !rl.has_retry_after {
+                        findings.push(
+                            Finding::new(
+                                SCANNER_ID,
+                                Severity::Warning,
+                                format!(
+                                    "Rate limiter for {} {} does not return Retry-After header",
+                                    ep.method, ep.path
+                                ),
+                            )
+                            .with_file(&ep.file)
+                            .with_line(rl.line)
+                            .with_suggestion(
+                                "Configure the rate limiter to include a Retry-After header \
+                                 so clients can implement proper backoff instead of hammering",
+                            ),
+                        );
+                    }
+
+                    // Check 2: Refresh endpoint under aggressive rate limiting = deadlock risk
+                    if is_refresh_endpoint(&ep.path) {
+                        findings.push(
+                            Finding::new(
+                                SCANNER_ID,
+                                Severity::Critical,
+                                format!(
+                                    "Refresh endpoint {} {} is rate-limited — deadlock risk: \
+                                     expired tokens + rate limit = user locked out",
+                                    ep.method, ep.path
+                                ),
+                            )
+                            .with_file(&ep.file)
+                            .with_line(ep.line)
+                            .with_suggestion(
+                                "Exclude refresh/token-renewal endpoints from global rate limiting \
+                                 or use a much higher limit. Rate-limiting refresh causes users \
+                                 with expired tokens to be permanently locked out",
+                            ),
+                        );
+                    }
+                }
             }
         }
 
-        let protected = total_auth - findings.len();
+        // Score: only count the "no rate limiting" findings as truly unprotected
+        let unprotected = findings
+            .iter()
+            .filter(|f| f.message.contains("no rate limiting"))
+            .count();
+        let protected = total_auth - unprotected;
         let score = compute_score(protected, total_auth);
         let summary = build_summary(&findings, protected, total_auth, score);
 
@@ -202,7 +301,13 @@ layers: {}
         store.api.endpoints.entry(key).or_default().push(ep.clone());
     }
 
-    fn insert_rate_limit(store: &IndexStore, file: &str, line: usize, limit_type: RateLimitType) {
+    fn insert_rate_limit(
+        store: &IndexStore,
+        file: &str,
+        line: usize,
+        limit_type: RateLimitType,
+        has_retry_after: bool,
+    ) {
         let path = PathBuf::from(file);
         store
             .security
@@ -214,6 +319,7 @@ layers: {}
                 line,
                 endpoint_hint: None,
                 limit_type,
+                has_retry_after,
             });
     }
 
@@ -258,7 +364,7 @@ layers: {}
         let store = IndexStore::new();
         let ep = make_endpoint(HttpMethod::Post, "/api/login", "src/auth/login.ts", 10);
         insert_endpoint(&store, &ep);
-        insert_rate_limit(&store, "src/auth/login.ts", 5, RateLimitType::Decorator);
+        insert_rate_limit(&store, "src/auth/login.ts", 5, RateLimitType::Decorator, true);
 
         let config = minimal_config();
         let ctx = ScanContext {
@@ -276,12 +382,16 @@ layers: {}
     fn mixed_coverage() {
         let store = IndexStore::new();
 
-        // Auth endpoint WITH rate limiting
         let ep1 = make_endpoint(HttpMethod::Post, "/api/login", "src/auth/login.ts", 10);
         insert_endpoint(&store, &ep1);
-        insert_rate_limit(&store, "src/auth/login.ts", 5, RateLimitType::Middleware);
+        insert_rate_limit(
+            &store,
+            "src/auth/login.ts",
+            5,
+            RateLimitType::Middleware,
+            true,
+        );
 
-        // Auth endpoint WITHOUT rate limiting
         let ep2 = make_endpoint(
             HttpMethod::Post,
             "/api/register",
@@ -290,7 +400,6 @@ layers: {}
         );
         insert_endpoint(&store, &ep2);
 
-        // Auth endpoint WITHOUT rate limiting
         let ep3 = make_endpoint(
             HttpMethod::Post,
             "/api/reset-password",
@@ -307,7 +416,6 @@ layers: {}
         };
 
         let result = RateLimitingCoverage.scan(&ctx);
-        // 1 protected out of 3 = 33%
         assert_eq!(result.score, 33);
         assert_eq!(result.findings.len(), 2);
         assert!(result
@@ -320,7 +428,6 @@ layers: {}
     fn non_auth_endpoints_ignored() {
         let store = IndexStore::new();
 
-        // Non-auth endpoints (no rate limiting needed for this scanner)
         let ep1 = make_endpoint(HttpMethod::Get, "/api/users", "src/users/list.ts", 5);
         insert_endpoint(&store, &ep1);
 
@@ -376,7 +483,7 @@ layers: {}
             let store = IndexStore::new();
             let ep = make_endpoint(HttpMethod::Post, "/api/login", "src/auth/login.ts", 10);
             insert_endpoint(&store, &ep);
-            insert_rate_limit(&store, "src/auth/login.ts", 5, limit_type);
+            insert_rate_limit(&store, "src/auth/login.ts", 5, limit_type, true);
 
             let config = minimal_config();
             let ctx = ScanContext {
@@ -389,5 +496,119 @@ layers: {}
             assert_eq!(result.score, 100, "Failed for {:?}", limit_type);
             assert!(result.findings.is_empty());
         }
+    }
+
+    // --- New tests for Retry-After and refresh deadlock ---
+
+    #[test]
+    fn rate_limit_without_retry_after_header() {
+        let store = IndexStore::new();
+        let ep = make_endpoint(HttpMethod::Post, "/api/login", "src/auth/login.ts", 10);
+        insert_endpoint(&store, &ep);
+        // has_retry_after = false
+        insert_rate_limit(
+            &store,
+            "src/auth/login.ts",
+            5,
+            RateLimitType::Middleware,
+            false,
+        );
+
+        let config = minimal_config();
+        let ctx = ScanContext {
+            config: &config,
+            index: &store,
+            root_dir: std::path::Path::new("."),
+        };
+
+        let result = RateLimitingCoverage.scan(&ctx);
+        // Has rate limiting → protected (score 100), but missing Retry-After → Warning
+        assert_eq!(result.score, 100);
+        assert_eq!(result.findings.len(), 1);
+        assert_eq!(result.findings[0].severity, Severity::Warning);
+        assert!(result.findings[0].message.contains("Retry-After"));
+    }
+
+    #[test]
+    fn refresh_endpoint_rate_limited_deadlock() {
+        let store = IndexStore::new();
+        let ep = make_endpoint(
+            HttpMethod::Post,
+            "/api/auth/refresh",
+            "src/auth/refresh.ts",
+            10,
+        );
+        insert_endpoint(&store, &ep);
+        insert_rate_limit(
+            &store,
+            "src/auth/refresh.ts",
+            5,
+            RateLimitType::Middleware,
+            true,
+        );
+
+        let config = minimal_config();
+        let ctx = ScanContext {
+            config: &config,
+            index: &store,
+            root_dir: std::path::Path::new("."),
+        };
+
+        let result = RateLimitingCoverage.scan(&ctx);
+        // Rate-limited refresh endpoint = deadlock risk
+        assert_eq!(result.score, 100); // "protected" but with deadlock finding
+        let deadlock_findings: Vec<_> = result
+            .findings
+            .iter()
+            .filter(|f| f.message.contains("deadlock"))
+            .collect();
+        assert_eq!(deadlock_findings.len(), 1);
+        assert_eq!(deadlock_findings[0].severity, Severity::Critical);
+    }
+
+    #[test]
+    fn refresh_endpoint_not_rate_limited_is_fine() {
+        let store = IndexStore::new();
+        // Refresh endpoint without rate limiting — that's actually correct
+        let ep = make_endpoint(
+            HttpMethod::Post,
+            "/api/auth/refresh",
+            "src/auth/refresh.ts",
+            10,
+        );
+        insert_endpoint(&store, &ep);
+        // No rate limit inserted for this file
+
+        let config = minimal_config();
+        let ctx = ScanContext {
+            config: &config,
+            index: &store,
+            root_dir: std::path::Path::new("."),
+        };
+
+        let result = RateLimitingCoverage.scan(&ctx);
+        // Missing rate limit = Critical, but no deadlock finding
+        // (The "no rate limiting" finding is expected since it's still an auth keyword match)
+        assert_eq!(result.findings.len(), 1);
+        assert!(result.findings[0].message.contains("no rate limiting"));
+        // No deadlock finding
+        assert!(!result
+            .findings
+            .iter()
+            .any(|f| f.message.contains("deadlock")));
+    }
+
+    #[test]
+    fn is_refresh_endpoint_detection() {
+        // Auth-related refreshes — should match
+        assert!(is_refresh_endpoint("/api/auth/refresh"));
+        assert!(is_refresh_endpoint("/api/token/refresh"));
+        assert!(is_refresh_endpoint("/api/oauth/refresh"));
+        // Non-auth paths — should NOT match
+        assert!(!is_refresh_endpoint("/api/login"));
+        assert!(!is_refresh_endpoint("/api/register"));
+        // Non-auth "refresh" — should NOT match (no auth context keyword)
+        assert!(!is_refresh_endpoint("/api/refresh-cache"));
+        assert!(!is_refresh_endpoint("/api/data/refresh"));
     }
 }

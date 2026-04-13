@@ -393,6 +393,17 @@ pub enum ErrorHandlingType {
     IgnoredError,
     UncheckedResponse,
     EmptyErrorBranch,
+    /// fetch/axios call without explicit 429 status handling.
+    Missing429Handler,
+    /// catch block has code (e.g. logging) but does not re-throw or return error,
+    /// silently swallowing the failure from upstream callers.
+    CatchNoRethrow,
+    /// Empty catch block specifically around 401/auth error handling,
+    /// causing auth failures to be silently swallowed.
+    EmptyCatch401,
+    /// Direct use of raw fetch()/axios instead of the shared auth client wrapper,
+    /// bypassing unified 401/429 error handling.
+    RawFetchBypass,
 }
 
 /// D11: Status literal reference in SQL queries.
@@ -463,6 +474,8 @@ pub struct RateLimitRef {
     pub line: usize,
     pub endpoint_hint: Option<String>,
     pub limit_type: RateLimitType,
+    /// Whether the rate-limiter config includes a Retry-After header.
+    pub has_retry_after: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -523,6 +536,28 @@ pub struct TokenRefreshRef {
     pub file: PathBuf,
     pub line: usize,
     pub has_old_token_revocation: bool,
+}
+
+/// S21: Cookie Set-Cookie call with TTL characteristics.
+#[derive(Debug, Clone)]
+pub struct CookieSettingRef {
+    pub file: PathBuf,
+    pub line: usize,
+    /// Name/key of the cookie being set.
+    pub cookie_name: String,
+    /// Whether the TTL (Max-Age / Expires) is explicitly parameterized vs. hardcoded.
+    pub has_explicit_ttl: bool,
+    /// Whether the TTL value is a hardcoded literal (e.g., `900`, `"15m"`).
+    pub is_hardcoded_ttl: bool,
+}
+
+/// S9: Next.js rewrite rule from next.config.js.
+#[derive(Debug, Clone)]
+pub struct NextRewriteRule {
+    pub source: String,
+    pub destination: String,
+    pub file: PathBuf,
+    pub line: usize,
 }
 
 /// S27: Concurrency safety reference.

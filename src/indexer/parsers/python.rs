@@ -1057,7 +1057,8 @@ fn scan_rate_limit_py(path: &Path, source: &[u8], store: &IndexStore) {
     };
 
     let re = rate_limit_py_re();
-    for (line_num, line_text) in source_str.lines().enumerate() {
+    let lines: Vec<&str> = source_str.lines().collect();
+    for (line_num, line_text) in lines.iter().enumerate() {
         let trimmed = line_text.trim();
         if trimmed.starts_with('#') {
             continue;
@@ -1070,11 +1071,13 @@ fn scan_rate_limit_py(path: &Path, source: &[u8], store: &IndexStore) {
             } else {
                 RateLimitType::Middleware
             };
+            let has_retry_after = has_retry_after_nearby_py(&lines, line_num, 15);
             let entry = RateLimitRef {
                 file: path.to_path_buf(),
                 line: line_num + 1,
                 endpoint_hint: None,
                 limit_type,
+                has_retry_after,
             };
             store
                 .security
@@ -1084,6 +1087,17 @@ fn scan_rate_limit_py(path: &Path, source: &[u8], store: &IndexStore) {
                 .push(entry);
         }
     }
+}
+
+fn has_retry_after_nearby_py(lines: &[&str], center: usize, window: usize) -> bool {
+    let start = center.saturating_sub(window);
+    let end = (center + window).min(lines.len());
+    lines[start..end]
+        .iter()
+        .any(|l| {
+            let lower = l.to_lowercase();
+            lower.contains("retry-after") || lower.contains("retry_after")
+        })
 }
 
 // ---------------------------------------------------------------------------
